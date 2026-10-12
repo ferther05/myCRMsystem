@@ -1,0 +1,70 @@
+{
+  "purpose": "Skill structure, metadata and local reference validation; not CRM business tests",
+  "official_validator_used": true,
+  "skill_count": 12,
+  "checked_local_links": 55,
+  "skills": [
+    {
+      "name": "crm-business-state",
+      "lines": 21,
+      "path": ".agents/skills/crm-business-state/SKILL.md"
+    },
+    {
+      "name": "crm-deployment-recovery",
+      "lines": 31,
+      "path": ".agents/skills/crm-deployment-recovery/SKILL.md"
+    },
+    {
+      "name": "crm-design-contracts",
+      "lines": 29,
+      "path": ".agents/skills/crm-design-contracts/SKILL.md"
+    },
+    {
+      "name": "crm-graduation-delivery",
+      "lines": 28,
+      "path": ".agents/skills/crm-graduation-delivery/SKILL.md"
+    },
+    {
+      "name": "crm-jobs-cache",
+      "lines": 30,
+      "path": ".agents/skills/crm-jobs-cache/SKILL.md"
+    },
+    {
+      "name": "crm-security-permissions",
+      "lines": 25,
+      "path": ".agents/skills/crm-security-permissions/SKILL.md"
+    },
+    {
+      "name": "crm-spec-delivery",
+      "lines": 29,
+      "path": ".agents/skills/crm-spec-delivery/SKILL.md"
+    },
+    {
+      "name": "crm-verification",
+      "lines": 26,
+      "path": ".agents/skills/crm-verification/SKILL.md"
+    },
+    {
+      "name": "playwright",
+      "lines": 159,
+      "path": ".agents/skills/playwright/SKILL.md"
+    },
+    {
+      "name": "security-threat-model",
+      "lines": 81,
+      "path": ".agents/skills/security-threat-model/SKILL.md"
+    },
+    {
+      "name": "springboot-mybatis-development",
+      "lines": 26,
+      "path": ".agents/skills/springboot-mybatis-development/SKILL.md"
+    },
+    {
+      "name": "vue3-elementplus-development",
+      "lines": 27,
+      "path": ".agents/skills/vue3-elementplus-development/SKILL.md"
+    }
+  ],
+  "errors": [],
+  "passed": true
+}

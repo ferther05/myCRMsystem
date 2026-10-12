@@ -1,0 +1,186 @@
+{
+  "prepared_utc": "2026-10-12T02:13:14.364717+00:00",
+  "scope": "project .agents/skills, automatically discoverable when this CRM workspace is open",
+  "upstream": {
+    "playwright": {
+      "source": "https://github.com/openai/skills/tree/main/skills/.curated/playwright",
+      "original_sha256": {
+        "agents/openai.yaml": "ddda43720fc566fffa45264be8f17f7745a3cee28d5245d41d3b963bc9967230",
+        "assets/playwright-small.svg": "f1d213c0f76735d8272c3d3e9fbf71fe7b894e2d1588907044c780f2c33a9732",
+        "assets/playwright.png": "521669f088c838196c6c852ccc9abdd7234d8f37fc9a8a7a9af7db2d50193381",
+        "LICENSE.txt": "9a7110fc2d2f964038e5dc49128f908f29f47a574c961cba16085914e879cbda",
+        "NOTICE.txt": "417d5d3372914ecfd9fe102ac1d7dc2119253209f9718d6c222f616876c1904b",
+        "references/cli.md": "7c069a8206ba20b9ddbdc42436b04de30bb3aa4a825ba98680757ee62e954900",
+        "references/workflows.md": "a2b5835a00ebee3906c146adf7f764f7718ea3f89a8702d86eaa135dfe0fc8c2",
+        "scripts/playwright_cli.sh": "aa3fdff5d0e4556177f4dfd5f04117e772aa54f94b6a2e34b6c0edf629c6b9b5",
+        "SKILL.md": "0ffaabcc8e0990627c4725f18bf1c7955534a796c1c199e872909de2013ce6a8"
+      }
+    },
+    "security-threat-model": {
+      "source": "https://github.com/openai/skills/tree/main/skills/.curated/security-threat-model",
+      "original_sha256": {
+        "agents/openai.yaml": "3319b59736312abceca614e341c0e59cae47263e3b58a22b2b5ddf1e5fc8c227",
+        "LICENSE.txt": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+        "references/prompt-template.md": "81a59aa3fb3ac3a739d6a26ab38e4015965f215581ee54becef21a2b121ec29b",
+        "references/security-controls-and-assets.md": "d536cfa9acad2523dc39134bcf33b9566c29dd9a57b407cbc9901637230c6b98",
+        "SKILL.md": "1283c0dd62a8104d9edda4583569b5d8510b4ddaa45120687c999250fd96bad2"
+      }
+    }
+  },
+  "local_adaptations": {
+    "playwright": [
+      "Added a Windows PowerShell entrypoint",
+      "Resolved paths relative to the CRM project",
+      "Pinned CLI wrappers to 0.1.22 without changing global configuration",
+      "Aligned Bash reference paths and current requests command with the Windows/project entrypoint"
+    ]
+  },
+  "custom_skills": [
+    "crm-spec-delivery",
+    "springboot-mybatis-development",
+    "vue3-elementplus-development",
+    "crm-business-state",
+    "crm-security-permissions",
+    "crm-jobs-cache",
+    "crm-verification",
+    "crm-design-contracts",
+    "crm-graduation-delivery",
+    "crm-deployment-recovery"
+  ],
+  "reference_files": [
+    {
+      "name": "项目开发详细设计文档-潘思诚.docx",
+      "sha256": "86bd2e0c00f716d63d769ed4cbef083b12c51b9052bece4c9628c615cb3732dc",
+      "copied_sha256": "86bd2e0c00f716d63d769ed4cbef083b12c51b9052bece4c9628c615cb3732dc"
+    },
+    {
+      "name": "项目编写过程指南-潘思诚.docx",
+      "sha256": "2c43139f03d610b36b6bb0634b6c495c7d61b0bba96cb9303c1607e66a9828c1",
+      "copied_sha256": "2c43139f03d610b36b6bb0634b6c495c7d61b0bba96cb9303c1607e66a9828c1"
+    }
+  ],
+  "installed_sha256": {
+    "crm-business-state/references/invariants.md": "59b1d5112b1f487fd603e0ced95595bf8b0c57fb98ea601507a51988cda8c3db",
+    "crm-business-state/SKILL.md": "565960865260bb1044fec05ce9aa92763006f7e24d283c4065100d8e4b19e51f",
+    "crm-jobs-cache/SKILL.md": "87c5207f1be83c97ff3ac2953d74273e0eed992419c9edcf4bcb82e6abd93651",
+    "crm-security-permissions/references/access-matrix.md": "c2e777d628191077618b071e6e5d2d3bef0bb01162a42d041ee722a41a60f65b",
+    "crm-security-permissions/SKILL.md": "295b9f3f458c33adab25214b1c60eb0c429a44bf607ac98f8344722c152bb79d",
+    "crm-spec-delivery/SKILL.md": "88abde478b5741ad4f99207848efdb1a30aa8ce4fd11c95dda8e043e748c403a",
+    "crm-verification/references/scenarios.md": "5bbac4edaa9030b58e67539c38c3a59da262fa9c0fb3582835e3671c87de1d3a",
+    "crm-verification/SKILL.md": "295ffb82bdd5f7148d0906beb70996d6944bfbedd2f141b2c4015441d830b1e5",
+    "playwright/agents/openai.yaml": "ddda43720fc566fffa45264be8f17f7745a3cee28d5245d41d3b963bc9967230",
+    "playwright/assets/playwright-small.svg": "f1d213c0f76735d8272c3d3e9fbf71fe7b894e2d1588907044c780f2c33a9732",
+    "playwright/assets/playwright.png": "521669f088c838196c6c852ccc9abdd7234d8f37fc9a8a7a9af7db2d50193381",
+    "playwright/LICENSE.txt": "9a7110fc2d2f964038e5dc49128f908f29f47a574c961cba16085914e879cbda",
+    "playwright/NOTICE.txt": "417d5d3372914ecfd9fe102ac1d7dc2119253209f9718d6c222f616876c1904b",
+    "playwright/references/cli.md": "f0ea154586f0198f75f2511e5d4ad09b2b3c441207630a8ab096df965b97d803",
+    "playwright/references/workflows.md": "20cb7088e6ea7b98bfcf9a1589b02cea86eeb850134ebf93d066257b694cfe2c",
+    "playwright/scripts/playwright_cli.ps1": "ffb32cb503137b597cf1c86ef8a3e316d354a0577769b8cb82a603ad0bcb30dc",
+    "playwright/scripts/playwright_cli.sh": "6b0fbd210ee2c2ff81840169f5f533bb1b71ab42f6747b5ec9c451b6587ef848",
+    "playwright/SKILL.md": "94aeeb4f97c9ef085a33d2407a46269f876fa08fef27c9e18a5d1b5e8854a7b9",
+    "security-threat-model/agents/openai.yaml": "3319b59736312abceca614e341c0e59cae47263e3b58a22b2b5ddf1e5fc8c227",
+    "security-threat-model/LICENSE.txt": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9",
+    "security-threat-model/references/prompt-template.md": "81a59aa3fb3ac3a739d6a26ab38e4015965f215581ee54becef21a2b121ec29b",
+    "security-threat-model/references/security-controls-and-assets.md": "d536cfa9acad2523dc39134bcf33b9566c29dd9a57b407cbc9901637230c6b98",
+    "security-threat-model/SKILL.md": "1283c0dd62a8104d9edda4583569b5d8510b4ddaa45120687c999250fd96bad2",
+    "springboot-mybatis-development/references/consistency.md": "08fae34b9d4fd72049f7962b424703ff9d4e4281662a88e74bc4a66eb275aec2",
+    "springboot-mybatis-development/SKILL.md": "7d08abdad37d17185ccbeab3752405289ff080a2513dd844ad80f5d584e5c120",
+    "vue3-elementplus-development/SKILL.md": "1510c1522290c221d7c18b17ee7e7acaeed52daca9a35994c697a286e3e97222",
+    "crm-design-contracts/references/coverage-checks.md": "cfb5d35103177e39aca2336dd0f81a9542c697986d2d6f8e6f6e8514c1c3362c",
+    "crm-design-contracts/SKILL.md": "7b7ba18facf760f7bf3fde7e6a6617a5f65edab1777ff6216cc24fb8a5609f8e",
+    "crm-graduation-delivery/references/evidence-record.md": "783a92a16ece62674f03cb9598fed1187a056392873f5566f92018631f86baa5",
+    "crm-graduation-delivery/SKILL.md": "02df367ada607d15dfbd5f8f2ab2d4e37349c0cedf78e0fa30c12a84b3e18346",
+    "crm-deployment-recovery/references/recovery-checks.md": "2f4184e0ca17ea0b0e8aa475cbcdba27ea95efc24fc5f9b0f560049d62c685ef",
+    "crm-deployment-recovery/SKILL.md": "0caa4bcf2bbe1d4769f879f137bd02b462a7e6f4c2128aed11818f9f08ba82f2"
+  },
+  "runtime_verification": {
+    "playwright_cli": "0.1.22",
+    "windows_wrapper_version_and_help": "passed",
+    "browser_session": "crm-skill-smoke",
+    "opened_url": "about:blank",
+    "snapshot": "passed",
+    "browser": "HeadlessChrome/154.0.0.0",
+    "closed_session": true,
+    "limit": "Only browser runtime capability was checked; no CRM application or business tests exist yet"
+  },
+  "last_updated_utc": "2026-10-12T03:13:52.788160+00:00",
+  "project_skill_count": 12,
+  "provided_capabilities": [
+    {
+      "registered_name": "documents:documents",
+      "name": "documents",
+      "path": "C:/Users/psc/.codex/plugins/cache/openai-primary-runtime/documents/26.1007.11041/skills/documents/SKILL.md",
+      "sha256": "e3e5486c9e9f8c59ec89dd9de997bb76a4b65db7960d72437df2f5ed26a4df7f",
+      "management": "plugin-managed",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "pdf:pdf",
+      "name": "pdf",
+      "path": "C:/Users/psc/.codex/plugins/cache/openai-primary-runtime/pdf/26.1007.11041/skills/pdf/SKILL.md",
+      "sha256": "5e14b4b8f944dc5e678ee703dfacf583010431d64d5d829902c5b2541f736c89",
+      "management": "plugin-managed",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "presentations:Presentations",
+      "name": "Presentations",
+      "path": "C:/Users/psc/.codex/plugins/cache/openai-primary-runtime/presentations/26.1007.11041/skills/presentations/SKILL.md",
+      "sha256": "97fedde4ba6c9b9aa56e12b05b13acf035c29f9cd2f6906b8f27ceab11aea9a8",
+      "management": "plugin-managed",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "spreadsheets:Spreadsheets",
+      "name": "Spreadsheets",
+      "path": "C:/Users/psc/.codex/plugins/cache/openai-primary-runtime/spreadsheets/26.1007.11041/skills/spreadsheets/SKILL.md",
+      "sha256": "b8290a0c6a18182dc1fbb9432aae518a25bf5354978b7d4c60a834d0e79821aa",
+      "management": "plugin-managed",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "review",
+      "name": "review",
+      "path": "C:/Users/psc/.agents/skills/review/SKILL.md",
+      "sha256": "bd00601823f73cce6a20acc3996e7d2ea3c2a366143da12eafd0d94b98d88ece",
+      "management": "user-shared-skill",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "review-bugbot",
+      "name": "review-bugbot",
+      "path": "C:/Users/psc/.agents/skills/review-bugbot/SKILL.md",
+      "sha256": "24bb0b36844583c5a1ffe2dc11f861c85d68a281cc61ceda35966bbf60c08e7a",
+      "management": "user-shared-skill",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    },
+    {
+      "registered_name": "review-security",
+      "name": "review-security",
+      "path": "C:/Users/psc/.agents/skills/review-security/SKILL.md",
+      "sha256": "d007ec5a617e9caeef03055cd9c5dad762d80acb4ae1b20377bde4b3b41c46fd",
+      "management": "user-shared-skill",
+      "entrypoint_verified": true,
+      "runtime_executed_this_update": false
+    }
+  ],
+  "latest_additions": {
+    "skills": [
+      "crm-design-contracts",
+      "crm-graduation-delivery",
+      "crm-deployment-recovery"
+    ],
+    "files_added": 6,
+    "existing_skill_files_unchanged": 26,
+    "official_validator_used": true,
+    "project_validation_passed": true,
+    "provided_entrypoints_checked": 7,
+    "limit": "Checks cover skill metadata and references. No application build, deployment, document rendering or specialist review was executed by this update."
+  }
+}

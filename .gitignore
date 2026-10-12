@@ -1,0 +1,21 @@
+# Java / frontend build output
+target/
+node_modules/
+dist/
+.idea/
+
+# Local secrets and machine settings
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.yaml
+*.log
+
+# Generated verification evidence and temporary browser state
+output/
+.playwright-cli/
+__pycache__/
+*.pyc
+
+# .agents/skills, AGENTS.md and docs are project sources and must remain visible.
