@@ -1,0 +1,12 @@
+# Copy to application-local.yml in this directory, then run with profile local.
+# The copied file is ignored by Git. Keep real passwords out of this template.
+spring:
+  datasource:
+    username: ${CRM_DB_USERNAME:crm_app}
+    password: ${CRM_DB_PASSWORD:replace-with-local-app-password}
+
+# Generate at least 32 random bytes and Base64 encode them; do not reuse DB/user passwords.
+crm:
+  security:
+    jwt:
+      secret: ${CRM_JWT_SECRET:replace-with-base64-random-secret}

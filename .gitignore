@@ -11,6 +11,7 @@ dist/
 application-local.yml
 application-local.yaml
 *.log
+database/local-credentials.md
 
 # Generated verification evidence and temporary browser state
 output/

@@ -1,8 +1,8 @@
 {
   "purpose": "Skill structure, metadata and local reference validation; not CRM business tests",
   "official_validator_used": true,
-  "skill_count": 12,
-  "checked_local_links": 55,
+  "skill_count": 13,
+  "checked_local_links": 124,
   "skills": [
     {
       "name": "crm-business-state",
@@ -40,8 +40,13 @@
       "path": ".agents/skills/crm-spec-delivery/SKILL.md"
     },
     {
+      "name": "crm-ui-design",
+      "lines": 33,
+      "path": ".agents/skills/crm-ui-design/SKILL.md"
+    },
+    {
       "name": "crm-verification",
-      "lines": 26,
+      "lines": 32,
       "path": ".agents/skills/crm-verification/SKILL.md"
     },
     {
@@ -56,12 +61,12 @@
     },
     {
       "name": "springboot-mybatis-development",
-      "lines": 26,
+      "lines": 28,
       "path": ".agents/skills/springboot-mybatis-development/SKILL.md"
     },
     {
       "name": "vue3-elementplus-development",
-      "lines": 27,
+      "lines": 31,
       "path": ".agents/skills/vue3-elementplus-development/SKILL.md"
     }
   ],

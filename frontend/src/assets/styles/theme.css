@@ -1,0 +1,34 @@
+:root {
+  --crm-color-brand: #245ee5;
+  --crm-bg-page: #f3f5f9;
+  --crm-bg-panel: #ffffff;
+  --crm-sidebar: #142641;
+  --crm-text-main: #172b49;
+  --crm-text-secondary: #596b83;
+  --crm-border: #d9e0ea;
+  --crm-color-success: #167753;
+  --crm-color-warning: #956316;
+  --crm-color-danger: #bd3242;
+  --crm-radius: 10px;
+  --el-color-primary: var(--crm-color-brand);
+  --el-color-primary-light-3: #668eec;
+  --el-color-primary-light-5: #91aef2;
+  --el-color-primary-light-7: #bdcff8;
+  --el-color-primary-light-8: #d3dffb;
+  --el-color-primary-light-9: #e9effd;
+  --el-color-primary-dark-2: #1d4bb7;
+  --el-color-success: #167753;
+  --el-color-warning: #956316;
+  --el-color-danger: #bd3242;
+  --el-color-info: #596b83;
+  --el-text-color-primary: var(--crm-text-main);
+  --el-text-color-regular: #465b74;
+  --el-text-color-secondary: var(--crm-text-secondary);
+  --el-text-color-placeholder: #66758b;
+  --el-bg-color: var(--crm-bg-panel);
+  --el-bg-color-page: var(--crm-bg-page);
+  --el-border-color: var(--crm-border);
+  --el-border-color-light: #e6ebf2;
+  --el-border-radius-base: 6px;
+  --el-font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}

@@ -23,4 +23,6 @@ description: 为本 CRM 实现或修复 Java 17、Spring Boot 3、MyBatis-Plus�
 
 普通接口检查参数、响应和既有测试；资金、并发和状态变更增加有意义的数据库/接口验证。模拟 Mapper 的单元测试不能证明数据库条件更新、唯一键或事务隔离成立。
 
+需要代码评审时按 [CRM 审查清单](../crm-verification/references/review-checks.md) 核对受影响代码；测试设计衔接 [CRM 验证](../crm-verification/SKILL.md)。保留项目真实格式化约定，不为通用行数阈值增加无必要抽象或更换架构。
+
 交付说明包含实际命令、迁移影响、失败回滚/并发语义及未覆盖限制；同步相关需求记录。

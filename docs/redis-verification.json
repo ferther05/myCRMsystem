@@ -1,0 +1,64 @@
+{
+  "checked_at": "2026-10-12T19:09:50.499757+08:00",
+  "target": "127.0.0.1:6380",
+  "checks": {
+    "windows_connection": {
+      "passed": true,
+      "version": "7.0.15"
+    },
+    "configuration": {
+      "passed": true,
+      "actual": {
+        "appendfsync": "everysec",
+        "protected-mode": "yes",
+        "dir": "/var/lib/redis-crm",
+        "bind": "127.0.0.1 -::1",
+        "save": "900 1 300 10 60 10000",
+        "appendonly": "yes",
+        "port": "6380"
+      }
+    },
+    "write_read": {
+      "passed": true,
+      "temporary_key_ttl_seconds": 300
+    },
+    "service_restart_persistence": {
+      "passed": true
+    },
+    "singleton_keepalive": {
+      "passed": true,
+      "count": 1
+    },
+    "stop": {
+      "passed": true
+    },
+    "login_startup_invoked_directly": {
+      "passed": true,
+      "file": "C:\\Users\\psc\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\CRM-Redis7.vbs"
+    },
+    "instance_restart_persistence": {
+      "passed": true
+    },
+    "aof_health": {
+      "passed": true,
+      "aof_last_write_status": "ok"
+    },
+    "temporary_key_removed": {
+      "passed": true
+    },
+    "old_redis_preserved": {
+      "passed": true,
+      "port": 6379,
+      "version": "3.0.504"
+    },
+    "failed_attempt_temporary_key_cleanup": {
+      "passed": true,
+      "removed": 1
+    }
+  },
+  "not_executed": [
+    "Actual Windows reboot/logoff; login startup was invoked directly instead.",
+    "Spring Boot/JDBC application checks; CRM has no application skeleton yet."
+  ],
+  "status": "passed"
+}

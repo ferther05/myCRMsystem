@@ -1,0 +1,5 @@
+-- Administrator-only template. Replace the placeholder before executing locally.
+-- Do not commit a filled-in copy. This does not change the database schema or data.
+CREATE USER 'crm_app'@'127.0.0.1' IDENTIFIED BY '<generated-local-password>';
+GRANT SELECT, INSERT, UPDATE, DELETE ON crm_system.* TO 'crm_app'@'127.0.0.1';
+-- No DDL, global privileges, or GRANT OPTION are granted.

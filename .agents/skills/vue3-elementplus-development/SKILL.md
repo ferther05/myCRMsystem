@@ -7,6 +7,8 @@ description: 为本 CRM 开发或修复 Vue 3、Element Plus、Pinia、Vue Route
 
 读取 `AGENTS.md`，定位详细设计第 11 章对应页面及实际后端契约。先检查项目现有目录、组件和 package scripts，复用已存在的设计与技术选择。
 
+新增页面需要原型/视觉规范，或跨页面调整主题时，衔接 [CRM 页面设计](../crm-ui-design/SKILL.md)；沿用其已确认的主题和组件约定。普通局部修复不要求重做整套原型。
+
 ## 实现流程
 
 - 按模块组织 API 与页面，组合式 API 管理状态；用户/权限/字典用 Pinia，避免多个页面复制身份和枚举。
@@ -21,6 +23,8 @@ description: 为本 CRM 开发或修复 Vue 3、Element Plus、Pinia、Vue Route
 ## 验证与交付
 
 根据 package.json 执行实际构建、类型或既有测试。用 [playwright](../playwright/SKILL.md) 操作真实浏览器检查关键流程、窄屏、表单错误和角色差异；浏览器测试不代替后端越权测试。
+
+需要代码评审时按 [CRM 审查清单](../crm-verification/references/review-checks.md) 核对受影响契约、敏感数据、重复请求恢复及图表/监听器资源；按风险补足可重复回归验证，不以视觉原型代替实际交互测试。
 
 只有用户要求业务演示数据或项目已有开发 fixture 时才使用相应数据，并标明来源。确认 API 不存在时登记依赖，不把 mock 页面当作已联调。
 

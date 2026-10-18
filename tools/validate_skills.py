@@ -23,7 +23,7 @@ EXPECTED = {
     "springboot-mybatis-development", "vue3-elementplus-development",
     "crm-business-state", "crm-security-permissions", "crm-jobs-cache",
     "crm-verification", "crm-design-contracts", "crm-graduation-delivery",
-    "crm-deployment-recovery",
+    "crm-deployment-recovery", "crm-ui-design",
 }
 
 
