@@ -1,3 +1,34 @@
+# GitHub contains technical sources and project skills. Project documentation,
+# original reference material, and other root-level files stay local.
+/*
+!/.gitignore
+!/.gitattributes
+!/backend/
+!/frontend/
+!/database/
+!/tools/
+
+# Documentation formats stay local, including READMEs beside source code.
+*.md
+*.mdx
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.pdf
+*.ppt
+*.pptx
+*.rtf
+
+# Skills include their Markdown instructions and supporting resources.
+!/.agents/
+/.agents/*
+!/.agents/skills/
+!/.agents/skills/**
+
+# Local documentation maintenance helper
+/tools/sync_api_docs.py
+
 # Java / frontend build output
 target/
 node_modules/
@@ -18,5 +49,3 @@ output/
 .playwright-cli/
 __pycache__/
 *.pyc
-
-# .agents/skills, AGENTS.md and docs are project sources and must remain visible.
