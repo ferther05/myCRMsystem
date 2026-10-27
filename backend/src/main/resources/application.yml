@@ -12,6 +12,10 @@ spring:
     name: crm-backend
   lifecycle:
     timeout-per-shutdown-phase: 15s
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 22MB
   jackson:
     time-zone: Asia/Shanghai
     default-property-inclusion: always

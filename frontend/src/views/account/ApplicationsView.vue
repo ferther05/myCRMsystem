@@ -8,7 +8,7 @@ import { APPROVAL_STATUS, check, validUsername, validPhone, validInitialPassword
 import * as api from '@/api/users'
 const auth = useAuthStore()
 const admin = computed(() => auth.user?.roleCode === 'ADMIN')
-const rows = ref([]), total = ref(0), page = ref(1), size = ref(20)
+const rows = ref([]), total = ref(0), page = ref(1), size = ref(10)
 const loading = ref(false), failure = ref(''), dialogOpen = ref(false), target = ref(null)
 const saving = ref(false), formError = ref(''), formRef = ref()
 const form = reactive({ username: '', realName: '', phone: '', email: '', reason: '', approved: true, opinion: '', initialPassword: '' })
@@ -56,7 +56,7 @@ onMounted(load)
 <template>
   <div>
     <PageHeading title="内部账号申请与审核" :description="admin ? '审核团队经理提交的新专员账号申请；通过时设置初始密码。' : `为 ${auth.user?.teamName || '本团队'} 新成员申请专员账号。`"><el-button v-if="!admin" type="primary" @click="open()">提交账号申请</el-button><el-button :loading="loading" @click="load">刷新</el-button></PageHeading>
-    <DataTable :rows="rows" :total="total" :loading="loading" :error="failure" v-model:page="page" v-model:size="size" @retry="load">
+    <DataTable :rows="rows" :total="total" :loading="loading" :error="failure" v-model:page="page" @retry="load">
       <el-table-column prop="username" label="申请账号" min-width="170" /><el-table-column prop="realName" label="成员姓名" min-width="120" /><el-table-column prop="teamName" label="所属团队" min-width="150" /><el-table-column prop="applicantName" label="申请经理" min-width="120" />
       <el-table-column label="审核状态" min-width="105"><template #default="{ row }"><el-tag :type="row.approvalStatus === 'APPROVED' ? 'success' : row.approvalStatus === 'REJECTED' ? 'danger' : 'warning'">{{ APPROVAL_STATUS[row.approvalStatus] }}</el-tag></template></el-table-column>
       <el-table-column prop="reason" label="申请原因" min-width="220" /><el-table-column prop="reviewOpinion" label="审核意见" min-width="220" /><el-table-column prop="submittedAt" label="提交时间" min-width="190" />

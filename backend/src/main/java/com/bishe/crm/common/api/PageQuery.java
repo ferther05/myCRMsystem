@@ -12,9 +12,9 @@ public class PageQuery {
     @Min(value = 1, message = "页码至少为 1")
     private long page = 1;
 
-    @Min(value = 1, message = "每页至少 1 条")
-    @Max(value = 100, message = "每页最多 100 条")
-    private long size = 20;
+    @Min(value = 10, message = "每页固定 10 条")
+    @Max(value = 10, message = "每页固定 10 条")
+    private long size = 10;
 
     public <T> Page<T> toPage() {
         return new Page<>(page, size);

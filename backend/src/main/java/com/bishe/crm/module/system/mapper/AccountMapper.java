@@ -70,7 +70,7 @@ public interface AccountMapper {
     @Update("UPDATE sys_team SET manager_id=#{user},version=version+1 WHERE id=#{team} AND manager_id IS NULL")
     int assignVacantManager(@Param("team") Long team, @Param("user") Long user);
 
-    @Select("SELECT (SELECT COUNT(*) FROM crm_customer WHERE owner_id=#{id}) "
+    @Select("SELECT (SELECT COUNT(*) FROM crm_customer WHERE owner_id=#{id} AND deleted=0) "
             + "+(SELECT COUNT(*) FROM crm_opportunity WHERE owner_id=#{id}) "
             + "+(SELECT COUNT(*) FROM crm_contract WHERE owner_id=#{id}) "
             + "+(SELECT COUNT(*) FROM crm_opportunity_collaborator WHERE user_id=#{id} AND collaborator_status='ACTIVE')")
@@ -80,6 +80,12 @@ public interface AccountMapper {
             + "VALUES('USER',#{target},#{action},#{actor},#{team},#{now},#{reason})")
     int audit(@Param("target") Long target, @Param("action") String action, @Param("actor") Long actor,
               @Param("team") Long team, @Param("now") LocalDateTime now, @Param("reason") String reason);
+
+    @Update("UPDATE sys_user SET claim_date=#{date},claim_count=IF(claim_date=#{date},claim_count+IF(#{priority},0,1),IF(#{priority},0,1)) WHERE id=#{id}")
+    int recordClaim(@Param("id") Long id,@Param("date") java.time.LocalDate date,@Param("priority") boolean priority);
+
+    @Update("UPDATE sys_user SET current_hold_count=#{count} WHERE id=#{id}")
+    int syncHoldCount(@Param("id") Long id,@Param("count") int count);
 
     @Select("<script>SELECT t.id,t.team_code,t.team_name,t.manager_id,m.real_name AS manager_name,t.enabled "
             + "FROM sys_team t LEFT JOIN sys_user m ON m.id=t.manager_id "

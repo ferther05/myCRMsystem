@@ -34,7 +34,7 @@ class BackendInfrastructureIT {
         assertThat(jdbc.queryForObject("SELECT @@session.time_zone", String.class)).isEqualTo("+08:00");
         assertThat(jdbc.queryForObject("SELECT CURRENT_USER()", String.class)).startsWith("crm_app@");
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables "
-                + "WHERE table_schema=DATABASE() AND table_type='BASE TABLE'", Long.class)).isEqualTo(18);
+                + "WHERE table_schema=DATABASE() AND table_type='BASE TABLE'", Long.class)).isEqualTo(20);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE role_code='ADMIN' "
                 + "AND account_status='ACTIVE'", Long.class)).isGreaterThanOrEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_team WHERE enabled=1", Long.class))

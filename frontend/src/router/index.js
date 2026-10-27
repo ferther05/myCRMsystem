@@ -9,8 +9,11 @@ const moduleViews = {
   '/team': () => import('@/views/account/UsersView.vue'),
   '/system': () => import('@/views/account/UsersView.vue'),
   '/approvals': () => import('@/views/account/ApplicationsView.vue'),
-  '/customers': () => import('@/views/account/CustomerReadView.vue'),
-  '/public-pool': () => import('@/views/account/CustomerReadView.vue'),
+  '/customers': () => import('@/views/customer/CustomersView.vue'),
+  '/public-pool': () => import('@/views/customer/CustomersView.vue'),
+  '/opportunities': () => import('@/views/opportunity/OpportunitiesView.vue'),
+  '/analytics': () => import('@/views/analytics/AnalyticsView.vue'),
+  '/contracts': () => import('@/views/contract/ContractsView.vue'),
 }
 
 const router = createRouter({
@@ -45,6 +48,7 @@ router.beforeEach(async (to) => {
     if (user.mustChangePassword && to.name !== 'change-password') {
       return { path: '/change-password', query: { redirect: safeRedirect(to.fullPath) } }
     }
+    if (to.path === '/team' && user.roleCode === 'ADMIN') return '/system'
     if (!canVisit(to.meta, user.roleCode)) return '/403'
     return true
   } catch (error) {

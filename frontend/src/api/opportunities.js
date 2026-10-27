@@ -1,0 +1,17 @@
+import { http } from './http'
+
+export const listOpportunities = (params) => http.get('/opportunities', { params })
+export const getOpportunity = (id) => http.get(`/opportunities/${id}`)
+export const createOpportunity = (payload) => http.post('/opportunities', payload)
+export const editOpportunity = (id, payload) => http.put(`/opportunities/${id}`, payload)
+export const changeOpportunityStage = (id, payload) => http.patch(`/opportunities/${id}/stage`, payload)
+export const updateOpportunityThreshold = (id, payload) => http.patch(`/opportunities/${id}/threshold`, payload)
+export const addOpportunityCollaborator = (id, payload) => http.post(`/opportunities/${id}/collaborators`, payload)
+export const removeOpportunityCollaborator = (id, collaboratorId, version) => http.delete(`/opportunities/${id}/collaborators/${collaboratorId}`, { params: { version } })
+export const getOpportunityFunnel = (params) => http.get('/opportunities/funnel', { params })
+export const recordOpportunityEvidence = (id, payload) => http.post(`/opportunities/${id}/evidence`, payload)
+export const listOpportunityMembers = (id) => http.get(`/opportunities/${id}/members`)
+export const addOpportunityFollow = (id, payload) => http.post(`/opportunities/${id}/follow-records`, payload)
+export const decideOpportunityClose = (id, payload) => http.post(`/opportunities/${id}/close-decision`, payload)
+export const scanOpportunityActivity = () => http.post('/opportunities/activity-scan')
+export const listOpportunityOwners = () => http.get('/opportunities/owners')

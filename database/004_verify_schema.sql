@@ -52,3 +52,9 @@ FROM information_schema.statistics
 WHERE table_schema = DATABASE()
   AND table_name = 'crm_job_log'
   AND index_name = 'uk_job_log_attempt';
+
+SELECT 'contract_signing_history' AS check_name,
+       COUNT(*) AS matching_tables
+FROM information_schema.tables
+WHERE table_schema = DATABASE()
+  AND table_name = 'crm_contract_signing_history';

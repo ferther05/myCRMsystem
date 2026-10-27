@@ -16,7 +16,7 @@ const rows = ref([])
 const teams = ref([])
 const total = ref(0)
 const page = ref(1)
-const size = ref(20)
+const size = ref(10)
 const keyword = ref('')
 const status = ref('')
 const loading = ref(false)
@@ -87,7 +87,7 @@ onMounted(load)
       <el-select v-model="status" placeholder="全部状态" aria-label="账号状态" clearable><el-option v-for="(label, value) in ACCOUNT_STATUS" :key="value" :value="value" :label="label" /></el-select>
       <el-button type="primary" native-type="submit" :loading="loading">查询</el-button><el-button :disabled="loading" @click="load">刷新</el-button>
     </form>
-    <DataTable :rows="rows" :total="total" :loading="loading" :error="failure" v-model:page="page" v-model:size="size" @retry="load">
+    <DataTable :rows="rows" :total="total" :loading="loading" :error="failure" v-model:page="page" @retry="load">
       <el-table-column prop="username" label="登录账号" min-width="165" /><el-table-column prop="realName" label="姓名" min-width="110" />
       <el-table-column label="角色" min-width="100"><template #default="{ row }">{{ ROLE_NAMES[row.roleCode] }}</template></el-table-column>
       <el-table-column prop="teamName" label="所属团队" min-width="150"><template #default="{ row }">{{ row.teamName || '系统管理' }}</template></el-table-column>

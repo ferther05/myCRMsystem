@@ -69,10 +69,10 @@ class AccountManagementIT {
 
     @Test void realUserListsDetailsCountsAndTeamsAreScoped() {
         String sales = token(specialist), mgr = token(manager), root = token(admin);
-        var own = ok(call("GET", "/api/users?size=1", sales, null));
+        var own = ok(call("GET", "/api/users?size=10", sales, null));
         assertThat(own.path("total").asLong()).isEqualTo(1);
         assertThat(own.path("list").get(0).path("id").asLong()).isEqualTo(specialist);
-        assertThat(ok(call("GET", "/api/users?size=1", mgr, null)).path("total").asLong()).isEqualTo(3);
+        assertThat(ok(call("GET", "/api/users?size=10", mgr, null)).path("total").asLong()).isEqualTo(3);
         assertThat(ok(call("GET", "/api/users?keyword="+prefix, root, null)).path("total").asLong()).isEqualTo(5);
         status(call("GET", "/api/users/"+outsider, mgr, null), 404);
         status(call("GET", "/api/users/"+colleague, sales, null), 404);
@@ -188,7 +188,7 @@ class AccountManagementIT {
         long foreign = customer("foreign",outsider,south,"PRIVATE");
         long pub = customer("public",null,null,"PUBLIC");
         String sales = token(specialist), mgr = token(manager), root = token(admin);
-        assertThat(ok(call("GET","/api/customers?size=1",sales,null)).path("total").asInt()).isEqualTo(1);
+        assertThat(ok(call("GET","/api/customers?size=10",sales,null)).path("total").asInt()).isEqualTo(1);
         assertThat(ok(call("GET","/api/customers",mgr,null)).path("total").asInt()).isEqualTo(2);
         status(call("GET","/api/customers/"+foreign,mgr,null),404);
         status(call("GET","/api/customers/"+peer,sales,null),404);

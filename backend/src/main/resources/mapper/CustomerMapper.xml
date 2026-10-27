@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.bishe.crm.module.customer.mapper.CustomerMapper">
+  <sql id="owned">
+    <choose><when test="s.role == 'ADMIN'">1=1</when><when test="s.role == 'MANAGER'">c.team_id=#{s.teamId}</when><otherwise>c.owner_id=#{s.userId}</otherwise></choose>
+  </sql>
+  <sql id="handover">
+    EXISTS(SELECT 1 FROM crm_operation_log l WHERE l.biz_type='CUSTOMER' AND l.biz_id=c.id
+      AND l.old_owner_id=#{s.userId} AND l.ownership_seq=c.ownership_seq AND l.handover_readonly_until &gt; #{now})
+  </sql>
+  <sql id="scope">c.deleted=0 AND (c.sea_type='PUBLIC' OR <include refid="owned"/> OR <include refid="handover"/>)</sql>
+  <sql id="fields">
+    SELECT c.id,c.customer_name,
+      CASE WHEN c.sea_type='PUBLIC' THEN CASE WHEN c.primary_phone IS NULL THEN NULL
+        WHEN CHAR_LENGTH(c.primary_phone)&gt;=7 THEN CONCAT(LEFT(c.primary_phone,3),'****',RIGHT(c.primary_phone,4)) ELSE '****' END
+        ELSE c.primary_phone END AS primary_phone,
+      CASE WHEN c.sea_type='PUBLIC' THEN CASE WHEN p.contact_name IS NULL THEN NULL ELSE CONCAT(LEFT(p.contact_name,1),'**') END
+        ELSE p.contact_name END AS primary_contact_name,
+      c.source_code,c.industry_code,c.customer_level,c.tags_json,c.region,c.customer_status,c.sea_type,
+      c.owner_id,c.team_id,u.real_name AS owner_name,t.team_name,c.version,
+      CASE WHEN c.sea_type='PUBLIC' THEN 1 WHEN <include refid="owned"/> THEN 0 ELSE 1 END AS readonly,
+      CASE WHEN c.sea_type='PUBLIC' THEN <choose><when test="s.role == 'ADMIN'">1</when><otherwise>0</otherwise></choose>
+        WHEN <include refid="owned"/> THEN 1 ELSE 0 END AS can_edit
+    FROM crm_customer c LEFT JOIN sys_user u ON u.id=c.owner_id LEFT JOIN sys_team t ON t.id=c.team_id
+    LEFT JOIN crm_contact p ON p.primary_customer_id=c.id
+  </sql>
+  <select id="list" resultType="com.bishe.crm.module.customer.vo.CustomerSummaryVO">
+    <include refid="fields"/> WHERE <include refid="scope"/> AND c.sea_type=#{q.sea}
+    <if test="q.keyword != null and q.keyword != ''">AND c.customer_name LIKE CONCAT('%',#{q.keyword},'%')</if>
+    <if test="q.customerStatus != null and q.customerStatus != ''">AND c.customer_status=#{q.customerStatus}</if>
+    <if test="q.customerLevel != null and q.customerLevel != ''">AND c.customer_level=#{q.customerLevel}</if>
+    <if test="q.sourceCode != null and q.sourceCode != ''">AND c.source_code=#{q.sourceCode}</if>
+    <if test="q.industryCode != null and q.industryCode != ''">AND c.industry_code=#{q.industryCode}</if>
+    <if test="q.region != null and q.region != ''">AND c.region LIKE CONCAT('%',#{q.region},'%')</if>
+    <if test="q.ownerId != null">AND c.owner_id=#{q.ownerId}</if>
+    <if test="q.opportunityEligible">AND c.sea_type='PRIVATE' AND c.customer_status IN ('FOLLOWING','PROTECTED')
+      AND u.account_status='ACTIVE' AND u.role_code IN ('MANAGER','SPECIALIST') AND u.team_id=c.team_id AND t.enabled=1</if>
+    <if test="q.tags != null and !q.tags.isEmpty()">
+      AND (<choose><when test="q.tagMatch == 'ANY'">
+        <foreach collection="q.tags" item="tag" separator=" OR ">JSON_CONTAINS(COALESCE(c.tags_json,JSON_ARRAY()),JSON_QUOTE(#{tag}))</foreach>
+      </when><otherwise>
+        <foreach collection="q.tags" item="tag" separator=" AND ">JSON_CONTAINS(COALESCE(c.tags_json,JSON_ARRAY()),JSON_QUOTE(#{tag}))</foreach>
+      </otherwise></choose>)
+    </if>
+    ORDER BY c.id DESC
+  </select>
+  <select id="summary" resultType="com.bishe.crm.module.customer.vo.CustomerSummaryVO">
+    <include refid="fields"/> WHERE c.id=#{id} AND <include refid="scope"/>
+  </select>
+</mapper>

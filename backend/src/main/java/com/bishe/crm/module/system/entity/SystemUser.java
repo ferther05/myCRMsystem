@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.bishe.crm.common.entity.BaseEntity;
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -20,6 +21,9 @@ public class SystemUser extends BaseEntity {
     private Long teamId;
     private String accountStatus;
     private Boolean mustChangePassword;
+    private LocalDate claimDate;
+    private Integer claimCount;
+    private Integer currentHoldCount;
     private LocalDateTime lastLoginAt;
     @TableField(exist = false)
     private String teamName;

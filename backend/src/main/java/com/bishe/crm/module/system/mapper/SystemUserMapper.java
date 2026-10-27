@@ -12,7 +12,7 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface SystemUserMapper extends BaseMapper<SystemUser> {
     String USER_SELECT = "SELECT u.id, u.username, u.password_hash, u.real_name, u.phone, u.email, u.role_code, "
-            + "u.team_id, u.account_status, u.must_change_password, u.last_login_at, u.version, "
+            + "u.team_id, u.account_status, u.must_change_password, u.claim_date, u.claim_count, u.current_hold_count, u.last_login_at, u.version, "
             + "u.created_at, u.updated_at, t.team_name, t.enabled AS team_enabled "
             + "FROM sys_user u LEFT JOIN sys_team t ON t.id=u.team_id ";
 

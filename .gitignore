@@ -20,6 +20,9 @@
 *.pptx
 *.rtf
 
+# Track the repository entry point and current progress summary.
+!/README.md
+
 # Skills include their Markdown instructions and supporting resources.
 !/.agents/
 /.agents/*

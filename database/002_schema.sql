@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS crm_customer (
     normalized_primary_phone VARCHAR(32) NULL,
     source_code VARCHAR(32) NULL,
     industry_code VARCHAR(32) NULL,
+    region VARCHAR(100) NULL,
+    company_size VARCHAR(32) NULL,
+    remark VARCHAR(1000) NULL,
     customer_level VARCHAR(20) NOT NULL DEFAULT 'NORMAL',
     tags_json JSON NULL,
     owner_id BIGINT UNSIGNED NULL,
@@ -110,9 +113,17 @@ CREATE TABLE IF NOT EXISTS crm_customer (
     updated_by BIGINT UNSIGNED NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    deleted TINYINT(1) NOT NULL DEFAULT 0,
+    deleted_at DATETIME(3) NULL,
+    active_unified_social_credit_code VARCHAR(32)
+        GENERATED ALWAYS AS (CASE WHEN deleted=0 THEN unified_social_credit_code ELSE NULL END) STORED,
+    active_normalized_name VARCHAR(160)
+        GENERATED ALWAYS AS (CASE WHEN deleted=0 THEN normalized_name ELSE NULL END) STORED,
+    active_normalized_primary_phone VARCHAR(32)
+        GENERATED ALWAYS AS (CASE WHEN deleted=0 THEN normalized_primary_phone ELSE NULL END) STORED,
     PRIMARY KEY (id),
-    UNIQUE KEY uk_customer_credit_code (unified_social_credit_code),
-    UNIQUE KEY uk_customer_name_phone (normalized_name, normalized_primary_phone),
+    UNIQUE KEY uk_customer_active_credit_code (active_unified_social_credit_code),
+    UNIQUE KEY uk_customer_active_name_phone (active_normalized_name, active_normalized_primary_phone),
     KEY idx_customer_owner_status (owner_id, customer_status, sea_type),
     KEY idx_customer_team_status (team_id, customer_status, sea_type),
     KEY idx_customer_recycle (sea_type, customer_status, warning_at),
@@ -132,6 +143,8 @@ CREATE TABLE IF NOT EXISTS crm_contact (
     birthday DATE NULL,
     decision_role VARCHAR(32) NULL,
     is_primary TINYINT(1) NOT NULL DEFAULT 0,
+    primary_customer_id BIGINT UNSIGNED
+        GENERATED ALWAYS AS (CASE WHEN is_primary=1 THEN customer_id ELSE NULL END) STORED,
     version BIGINT NOT NULL DEFAULT 0,
     created_by BIGINT UNSIGNED NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -139,6 +152,7 @@ CREATE TABLE IF NOT EXISTS crm_contact (
     PRIMARY KEY (id),
     KEY idx_contact_customer (customer_id),
     KEY idx_contact_phone (phone),
+    UNIQUE KEY uk_contact_primary_customer (primary_customer_id),
     CONSTRAINT fk_contact_customer FOREIGN KEY (customer_id) REFERENCES crm_customer (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_contact_primary CHECK (is_primary IN (0, 1))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='客户联系人';
@@ -151,6 +165,9 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
     team_id BIGINT UNSIGNED NOT NULL,
     stage_code VARCHAR(32) NOT NULL DEFAULT 'NEW',
     activity_status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
+    stagnation_days INT UNSIGNED NOT NULL DEFAULT 20,
+    grace_days INT UNSIGNED NOT NULL DEFAULT 10,
+    threshold_customized TINYINT(1) NOT NULL DEFAULT 0,
     expected_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     expected_close_date DATE NULL,
     quote_amount DECIMAL(18,2) NULL,
@@ -160,6 +177,9 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
     customer_confirm_at DATETIME(3) NULL,
     customer_confirm_attachment_id BIGINT UNSIGNED NULL,
     last_effective_progress_at DATETIME(3) NULL,
+    stage_changed_at DATETIME(3) NULL,
+    close_pending_at DATETIME(3) NULL,
+    terminal_at DATETIME(3) NULL,
     close_reason VARCHAR(500) NULL,
     signed_confirmed_at DATETIME(3) NULL,
     version BIGINT NOT NULL DEFAULT 0,
@@ -171,12 +191,28 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
     KEY idx_opportunity_owner (owner_id, activity_status),
     KEY idx_opportunity_team (team_id, stage_code, activity_status),
     KEY idx_opportunity_stagnant (activity_status, last_effective_progress_at),
+    KEY idx_opportunity_activity_scan (activity_status, stage_code, stage_changed_at, last_effective_progress_at),
     CONSTRAINT fk_opportunity_customer FOREIGN KEY (customer_id) REFERENCES crm_customer (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_opportunity_owner FOREIGN KEY (owner_id) REFERENCES sys_user (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_opportunity_team FOREIGN KEY (team_id) REFERENCES sys_team (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_opportunity_creator FOREIGN KEY (created_by) REFERENCES sys_user (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_opportunity_amount CHECK (expected_amount >= 0 AND (quote_amount IS NULL OR quote_amount >= 0))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='商机';
+
+CREATE TABLE IF NOT EXISTS crm_opportunity_stage_log (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    opportunity_id BIGINT UNSIGNED NOT NULL,
+    from_stage VARCHAR(32) NULL,
+    to_stage VARCHAR(32) NOT NULL,
+    action_code VARCHAR(32) NOT NULL,
+    reason VARCHAR(500) NULL,
+    operator_id BIGINT UNSIGNED NULL COMMENT 'NULL表示系统自动流转',
+    occurred_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_opportunity_stage_log (opportunity_id, occurred_at),
+    CONSTRAINT fk_stage_log_opportunity FOREIGN KEY (opportunity_id) REFERENCES crm_opportunity(id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_stage_log_operator FOREIGN KEY (operator_id) REFERENCES sys_user(id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='商机阶段流转历史';
 
 CREATE TABLE IF NOT EXISTS crm_opportunity_collaborator (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -201,16 +237,21 @@ CREATE TABLE IF NOT EXISTS crm_opportunity_collaborator (
 CREATE TABLE IF NOT EXISTS crm_contract (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     contract_no VARCHAR(64) NOT NULL,
+    external_contract_no VARCHAR(64) NULL,
     customer_id BIGINT UNSIGNED NOT NULL,
     opportunity_id BIGINT UNSIGNED NOT NULL,
     owner_id BIGINT UNSIGNED NOT NULL,
     team_id BIGINT UNSIGNED NOT NULL,
     contract_name VARCHAR(160) NOT NULL,
+    business_type VARCHAR(64) NULL,
+    our_party_name VARCHAR(160) NULL,
+    counterparty_name VARCHAR(160) NULL,
+    description VARCHAR(1000) NULL,
     contract_amount DECIMAL(18,2) NOT NULL,
     signed_at DATE NULL,
     expire_date DATE NULL,
     contract_status VARCHAR(24) NOT NULL DEFAULT 'DRAFT',
-    signing_progress VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    signing_progress VARCHAR(32) NOT NULL DEFAULT 'INTERNAL_HANDLING',
     payment_status VARCHAR(24) NOT NULL DEFAULT 'UNPAID',
     received_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
     outstanding_amount DECIMAL(18,2) NOT NULL DEFAULT 0.00,
@@ -241,6 +282,25 @@ CREATE TABLE IF NOT EXISTS crm_contract (
     CONSTRAINT fk_contract_performance_team FOREIGN KEY (performance_team_id) REFERENCES sys_team (id) ON DELETE SET NULL ON UPDATE RESTRICT,
     CONSTRAINT ck_contract_amounts CHECK (contract_amount >= 0 AND received_amount >= 0 AND outstanding_amount >= 0 AND received_amount <= contract_amount)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='合同';
+
+CREATE TABLE IF NOT EXISTS crm_contract_signing_history (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    contract_id BIGINT UNSIGNED NOT NULL,
+    from_progress VARCHAR(32) NULL,
+    to_progress VARCHAR(32) NOT NULL,
+    operator_id BIGINT UNSIGNED NULL,
+    operator_name VARCHAR(80) NOT NULL,
+    operator_role VARCHAR(24) NOT NULL,
+    operator_team_id BIGINT UNSIGNED NULL,
+    changed_at DATETIME(3) NOT NULL,
+    reason VARCHAR(500) NOT NULL,
+    is_correction TINYINT(1) NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    KEY idx_contract_signing_history (contract_id, id),
+    CONSTRAINT fk_signing_history_contract FOREIGN KEY (contract_id) REFERENCES crm_contract (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_signing_history_user FOREIGN KEY (operator_id) REFERENCES sys_user (id) ON DELETE SET NULL ON UPDATE RESTRICT,
+    CONSTRAINT fk_signing_history_team FOREIGN KEY (operator_team_id) REFERENCES sys_team (id) ON DELETE SET NULL ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='合同签署进度历史';
 
 CREATE TABLE IF NOT EXISTS crm_payment_plan (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -464,7 +524,7 @@ CREATE TABLE IF NOT EXISTS crm_operation_log (
     biz_type VARCHAR(32) NOT NULL,
     biz_id BIGINT UNSIGNED NOT NULL,
     action_code VARCHAR(64) NOT NULL,
-    operator_id BIGINT UNSIGNED NOT NULL,
+    operator_id BIGINT UNSIGNED NULL,
     operator_team_id BIGINT UNSIGNED NULL,
     occurred_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     request_id VARCHAR(100) NULL,
