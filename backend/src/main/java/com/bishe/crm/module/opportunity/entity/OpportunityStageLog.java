@@ -1,3 +1,4 @@
+/* 文件作用：商机阶段变化的历史实体。 */
 package com.bishe.crm.module.opportunity.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -7,9 +8,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_opportunity_stage_log")
+/** 商机阶段变化的历史实体。 */
+@Getter
+@Setter
+@TableName("crm_opportunity_stage_log")
 public class OpportunityStageLog {
-    @TableId(type=IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private Long opportunityId;
     private String fromStage;
     private String toStage;

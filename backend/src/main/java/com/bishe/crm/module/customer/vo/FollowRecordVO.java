@@ -1,11 +1,15 @@
+/* 文件作用：返回跟进内容、有效性及查验信息。 */
 package com.bishe.crm.module.customer.vo;
 
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter
+/** 返回跟进内容、有效性及查验信息。 */
+@Getter
+@Setter
 public class FollowRecordVO {
+
     private Long id;
     private Long customerId;
     private Long opportunityId;

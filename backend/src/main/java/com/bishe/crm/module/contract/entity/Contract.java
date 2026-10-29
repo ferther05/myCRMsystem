@@ -1,3 +1,4 @@
+/* 文件作用：合同登记主表实体，保存登记及签署当前状态。 */
 package com.bishe.crm.module.contract.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -9,9 +10,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_contract")
+/** 合同登记主表实体，保存登记及签署当前状态。 */
+@Getter
+@Setter
+@TableName("crm_contract")
 public class Contract {
-    @TableId(type = IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private String contractNo;
     private String externalContractNo;
     private Long customerId;

@@ -1,3 +1,4 @@
+/* 文件作用：商机数据库实体，保存阶段、金额与活跃度。 */
 package com.bishe.crm.module.opportunity.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -9,9 +10,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_opportunity")
+/** 商机数据库实体，保存阶段、金额与活跃度。 */
+@Getter
+@Setter
+@TableName("crm_opportunity")
 public class Opportunity {
-    @TableId(type=IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private Long customerId;
     private String opportunityName;
     private Long ownerId;

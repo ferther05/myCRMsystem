@@ -1,3 +1,4 @@
+/* 文件作用：当前商机的协作授权及分成比例实体。 */
 package com.bishe.crm.module.opportunity.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -8,9 +9,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_opportunity_collaborator")
+/** 当前商机的协作授权及分成比例实体。 */
+@Getter
+@Setter
+@TableName("crm_opportunity_collaborator")
 public class OpportunityCollaborator {
-    @TableId(type=IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private Long opportunityId;
     private Long userId;
     private String collaboratorRole;

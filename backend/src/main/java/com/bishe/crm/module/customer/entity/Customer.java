@@ -1,3 +1,4 @@
+/* 文件作用：客户档案数据库实体，保存归属、分类和跟进计时。 */
 package com.bishe.crm.module.customer.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
@@ -5,9 +6,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_customer")
+/** 客户档案数据库实体，保存归属、分类和跟进计时。 */
+@Getter
+@Setter
+@TableName("crm_customer")
 public class Customer {
-    @TableId(type=IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private String customerName;
     private String normalizedName;
     private String unifiedSocialCreditCode;

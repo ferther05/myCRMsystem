@@ -1,3 +1,5 @@
+# 文件作用：后端公共配置，统一服务端口、数据库与 Redis 连接、认证及附件限制。
+# 真实密码和 JWT 密钥由本地忽略配置或环境变量提供。
 server:
   address: ${CRM_SERVER_ADDRESS:127.0.0.1}
   port: ${CRM_SERVER_PORT:8080}

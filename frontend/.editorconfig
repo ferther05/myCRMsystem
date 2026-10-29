@@ -1,0 +1,9 @@
+# 前端源码排版：UTF-8、两空格缩进，与已整理的 Vue、JS 和 CSS 保持一致。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2

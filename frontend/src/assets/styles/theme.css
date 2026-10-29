@@ -1,3 +1,4 @@
+/* 文件作用：维护 CRM 主题颜色及 Element Plus 样式变量。 */
 :root {
   --crm-color-brand: #245ee5;
   --crm-bg-page: #f3f5f9;
@@ -30,5 +31,5 @@
   --el-border-color: var(--crm-border);
   --el-border-color-light: #e6ebf2;
   --el-border-radius-base: 6px;
-  --el-font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  --el-font-family: 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
 }

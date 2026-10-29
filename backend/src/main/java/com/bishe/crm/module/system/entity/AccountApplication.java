@@ -1,11 +1,15 @@
+/* 文件作用：内部账号申请及审核状态的数据库实体。 */
 package com.bishe.crm.module.system.entity;
 
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter
+/** 内部账号申请及审核状态的数据库实体。 */
+@Getter
+@Setter
 public class AccountApplication {
+
     private Long id;
     private Long bizId;
     private Long applicantId;

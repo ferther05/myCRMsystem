@@ -1,9 +1,10 @@
+/* 文件作用：客户档案、联系人、跟进查验和归属操作接口。 */
 package com.bishe.crm.module.customer.controller;
 
 import com.bishe.crm.common.api.*;
 import com.bishe.crm.module.auth.security.AuthPrincipal;
-import com.bishe.crm.module.customer.service.CustomerService;
 import com.bishe.crm.module.customer.dto.*;
+import com.bishe.crm.module.customer.service.CustomerService;
 import com.bishe.crm.module.customer.vo.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
@@ -14,79 +15,160 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-@RestController @RequestMapping("/api/customers") @RequiredArgsConstructor @Validated
+/** 客户档案、联系人、跟进查验和归属操作接口。 */
+@RestController
+@RequestMapping("/api/customers")
+@RequiredArgsConstructor
+@Validated
 public class CustomerReadController {
+
     private final CustomerService customers;
 
+    /** 按当前用户可见范围分页查询记录。 */
     @GetMapping
-    public ApiResponse<PageResult<CustomerSummaryVO>> list(@AuthenticationPrincipal AuthPrincipal actor,
-            @Valid CustomerQuery query) {
+    public ApiResponse<PageResult<CustomerSummaryVO>> list(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Valid CustomerQuery query
+    ) {
         return ApiResponse.success(customers.list(actor, query));
     }
 
+    /** 查询详情并检查当前用户的数据权限。 */
     @GetMapping("/{id}")
-    public ApiResponse<CustomerDetailVO> detail(@AuthenticationPrincipal AuthPrincipal actor,
-                                                @Positive @PathVariable Long id) {
+    public ApiResponse<CustomerDetailVO> detail(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id
+    ) {
         return ApiResponse.success(customers.detail(actor, id));
     }
 
+    /** 仅允许管理员新增客户并指定归属。 */
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<Long> create(@AuthenticationPrincipal AuthPrincipal actor,@Valid @RequestBody CustomerRequests.Create request) {
-        return ApiResponse.success(customers.create(actor,request));
+    public ApiResponse<Long> create(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Valid @RequestBody CustomerRequests.Create request
+    ) {
+        return ApiResponse.success(customers.create(actor, request));
     }
+
+    /** 更新客户基本档案。 */
     @PutMapping("/{id}")
-    public ApiResponse<Void> edit(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                  @Valid @RequestBody CustomerRequests.Edit request) {
-        customers.edit(actor,id,request); return ApiResponse.success(null);
+    public ApiResponse<Void> edit(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody CustomerRequests.Edit request
+    ) {
+        customers.edit(actor, id, request);
+        return ApiResponse.success(null);
     }
+
+    /** 更新客户等级和标签。 */
     @PatchMapping("/{id}/classification")
-    public ApiResponse<Void> classify(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                     @Valid @RequestBody CustomerRequests.Classification request) {
-        customers.classify(actor,id,request); return ApiResponse.success(null);
+    public ApiResponse<Void> classify(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody CustomerRequests.Classification request
+    ) {
+        customers.classify(actor, id, request);
+        return ApiResponse.success(null);
     }
+
+    /** 逻辑删除符合条件的客户。 */
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> delete(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                    @RequestParam @jakarta.validation.constraints.PositiveOrZero long version) {
-        customers.delete(actor,id,version); return ApiResponse.success(null);
+    public ApiResponse<Void> delete(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @RequestParam @jakarta.validation.constraints.PositiveOrZero long version
+    ) {
+        customers.delete(actor, id, version);
+        return ApiResponse.success(null);
     }
+
+    /** 返回当前客户的联系人列表。 */
     @GetMapping("/{id}/contacts")
-    public ApiResponse<java.util.List<ContactVO>> contacts(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id) {
-        return ApiResponse.success(customers.detail(actor,id).getContacts());
+    public ApiResponse<java.util.List<ContactVO>> contacts(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id
+    ) {
+        return ApiResponse.success(customers.detail(actor, id).getContacts());
     }
+
+    /** 新增客户联系人。 */
     @PostMapping("/{id}/contacts")
-    public ApiResponse<Long> addContact(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                       @Valid @RequestBody CustomerRequests.ContactWrite request) {
-        return ApiResponse.success(customers.addContact(actor,id,request));
+    public ApiResponse<Long> addContact(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody CustomerRequests.ContactWrite request
+    ) {
+        return ApiResponse.success(customers.addContact(actor, id, request));
     }
+
+    /** 修改指定联系人。 */
     @PutMapping("/{id}/contacts/{contactId}")
-    public ApiResponse<Void> editContact(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-            @Positive @PathVariable Long contactId,@Valid @RequestBody CustomerRequests.ContactWrite request) {
-        customers.editContact(actor,id,contactId,request); return ApiResponse.success(null);
+    public ApiResponse<Void> editContact(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long contactId,
+        @Valid @RequestBody CustomerRequests.ContactWrite request
+    ) {
+        customers.editContact(actor, id, contactId, request);
+        return ApiResponse.success(null);
     }
+
+    /** 删除未被业务记录引用的联系人。 */
     @DeleteMapping("/{id}/contacts/{contactId}")
-    public ApiResponse<Void> deleteContact(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-            @Positive @PathVariable Long contactId,@RequestParam @jakarta.validation.constraints.PositiveOrZero long customerVersion) {
-        customers.deleteContact(actor,id,contactId,customerVersion); return ApiResponse.success(null);
+    public ApiResponse<Void> deleteContact(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long contactId,
+        @RequestParam @jakarta.validation.constraints.PositiveOrZero long customerVersion
+    ) {
+        customers.deleteContact(actor, id, contactId, customerVersion);
+        return ApiResponse.success(null);
     }
+
+    /** 提交不可覆盖的客户或商机跟进记录。 */
     @PostMapping("/{id}/follow-records")
-    public ApiResponse<Long> addFollow(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                       @Valid @RequestBody CustomerRequests.FollowWrite request) {
-        return ApiResponse.success(customers.addFollow(actor,id,request));
+    public ApiResponse<Long> addFollow(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody CustomerRequests.FollowWrite request
+    ) {
+        return ApiResponse.success(customers.addFollow(actor, id, request));
     }
+
+    /** 确认或打回跟进并重算有效跟进时间。 */
     @PatchMapping("/{id}/follow-records/{followId}/review")
-    public ApiResponse<Void> reviewFollow(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-            @Positive @PathVariable Long followId,@Valid @RequestBody CustomerRequests.FollowReview request) {
-        customers.reviewFollow(actor,id,followId,request); return ApiResponse.success(null);
+    public ApiResponse<Void> reviewFollow(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long followId,
+        @Valid @RequestBody CustomerRequests.FollowReview request
+    ) {
+        customers.reviewFollow(actor, id, followId, request);
+        return ApiResponse.success(null);
     }
+
+    /** 申领公海客户。 */
     @PostMapping("/{id}/claim")
-    public ApiResponse<Void> claim(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                   @RequestParam @jakarta.validation.constraints.PositiveOrZero long version) {
-        customers.claim(actor,id,version); return ApiResponse.success(null);
+    public ApiResponse<Void> claim(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @RequestParam @jakarta.validation.constraints.PositiveOrZero long version
+    ) {
+        customers.claim(actor, id, version);
+        return ApiResponse.success(null);
     }
+
+    /** 由管理员转交客户负责人。 */
     @PatchMapping("/{id}/ownership")
-    public ApiResponse<Void> transfer(@AuthenticationPrincipal AuthPrincipal actor,@Positive @PathVariable Long id,
-                                      @Valid @RequestBody CustomerRequests.OwnershipTransfer request) {
-        customers.transfer(actor,id,request); return ApiResponse.success(null);
+    public ApiResponse<Void> transfer(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody CustomerRequests.OwnershipTransfer request
+    ) {
+        customers.transfer(actor, id, request);
+        return ApiResponse.success(null);
     }
 }

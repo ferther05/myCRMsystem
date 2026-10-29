@@ -1,3 +1,4 @@
+/* 文件作用：返回可办理合同登记的成交商机。 */
 package com.bishe.crm.module.contract.vo;
 
 import java.math.BigDecimal;
@@ -6,8 +7,10 @@ import lombok.Getter;
 import lombok.Setter;
 
 /** 成交商单及其当前登记情况；尚未创建登记时 contractId 为空。 */
-@Getter @Setter
+@Getter
+@Setter
 public class ContractRegistrationVO {
+
     private Long opportunityId;
     private String opportunityName;
     private Long customerId;

@@ -1,3 +1,4 @@
+/* 文件作用：客户联系人数据库实体。 */
 package com.bishe.crm.module.customer.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
@@ -6,9 +7,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_contact")
+/** 客户联系人数据库实体。 */
+@Getter
+@Setter
+@TableName("crm_contact")
 public class Contact {
-    @TableId(type=IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private Long customerId;
     private String contactName;
     private String jobTitle;

@@ -1,11 +1,15 @@
+/* 文件作用：返回内部账号申请与审核信息。 */
 package com.bishe.crm.module.system.vo;
 
 import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter
+/** 返回内部账号申请与审核信息。 */
+@Getter
+@Setter
 public class ApplicationVO {
+
     private Long id;
     private Long bizId;
     private String username;

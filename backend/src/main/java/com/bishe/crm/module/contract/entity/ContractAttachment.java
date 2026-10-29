@@ -1,3 +1,4 @@
+/* 文件作用：合同附件实体，记录存储位置、版本和核验信息。 */
 package com.bishe.crm.module.contract.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
@@ -7,9 +8,15 @@ import java.time.LocalDateTime;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter @TableName("crm_attachment")
+/** 合同附件实体，记录存储位置、版本和核验信息。 */
+@Getter
+@Setter
+@TableName("crm_attachment")
 public class ContractAttachment {
-    @TableId(type = IdType.AUTO) private Long id;
+
+    @TableId(type = IdType.AUTO)
+    private Long id;
+
     private String bizType;
     private Long bizId;
     private String materialType;

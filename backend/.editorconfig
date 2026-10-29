@@ -1,0 +1,12 @@
+# 后端源码排版：UTF-8、四空格缩进，保持 Java 和配置文件易读。
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+[*.{xml,yml,yaml}]
+indent_size = 2
