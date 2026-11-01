@@ -15,6 +15,10 @@ export const createContractFromOpportunity = (opportunityId) =>
   http.post('/contracts/from-opportunity', { opportunityId });
 /** 保存合同登记字段。 */
 export const editContract = (id, payload) => http.put(`/contracts/${id}`, payload);
+/** 提交在线登记表供经理或管理员核对，无需草稿文件。 */
+export const submitContractDraft = (id, payload) => http.post(`/contracts/${id}/draft-submit`, payload);
+/** 负责人撤回待审登记，重新开放表单修改。 */
+export const withdrawContractDraft = (id, payload) => http.post(`/contracts/${id}/draft-withdraw`, payload);
 /** 提交合同资料供内部核验。 */
 export const submitContract = (id, payload) => http.post(`/contracts/${id}/submit`, payload);
 /** 通过或退回合同资料。 */

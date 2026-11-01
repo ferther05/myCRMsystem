@@ -21,5 +21,6 @@ public class CustomerDetailVO extends CustomerSummaryVO {
     private LocalDateTime firstContactDeadlineAt;
     private List<ContactVO> contacts;
     private List<FollowRecordVO> followRecords;
+    private List<com.bishe.crm.module.opportunity.vo.OpportunitySummaryVO> opportunities;
     private Boolean canManageContacts;
 }

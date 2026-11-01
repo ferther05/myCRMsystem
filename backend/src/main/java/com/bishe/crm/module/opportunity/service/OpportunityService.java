@@ -532,18 +532,14 @@ public class OpportunityService {
         LocalDateTime now = now();
         int changed;
         if ("QUOTE".equals(request.kind())) {
-            if (
-                "NEW".equals(o.getStageCode()) ||
-                follows.latestEffectiveAtForOpportunity(id) == null
-            ) throw new BizException(ErrorCode.OPPORTUNITY_FOLLOW_REQUIRED);
+            if ("NEW".equals(o.getStageCode())) throw new BizException(
+                ErrorCode.OPPORTUNITY_FOLLOW_REQUIRED
+            );
             if (request.quoteAmount() == null) throw new BizException(ErrorCode.VALIDATION_ERROR);
             changed = opportunities.quote(id, o.getVersion(), money(request.quoteAmount()), now);
         } else {
             if (!List.of("QUOTED", "DEAL").contains(o.getStageCode())) throw new BizException(
                 ErrorCode.OPPORTUNITY_QUOTE_REQUIRED
-            );
-            if (follows.latestEffectiveAtForOpportunity(id) == null) throw new BizException(
-                ErrorCode.OPPORTUNITY_FOLLOW_REQUIRED
             );
             if (o.getQuoteAt() == null) throw new BizException(
                 ErrorCode.OPPORTUNITY_QUOTE_REQUIRED
@@ -661,7 +657,7 @@ public class OpportunityService {
         );
     }
 
-    /** 页面和所有推进入口共享门槛；待查验有效记录按 BD-14 暂时计入。 */
+    /** 页面和推进入口复用当前阶段本轮已核验有效跟进门槛。 */
     private List<OpportunityStageProgressVO.Requirement> requirements(
         Opportunity o,
         String target
@@ -671,9 +667,10 @@ public class OpportunityService {
         if (index >= 1) result.add(
             new OpportunityStageProgressVO.Requirement(
                 "EFFECTIVE_FOLLOW",
-                "本商机至少一条有效跟进（待查验暂时计入，打回撤销）",
-                follows.latestEffectiveAtForOpportunity(o.getId()) != null,
-                "在本商机提交方式、联系人、实质结果、下一步动作及未来时间完整的有效跟进"
+                "本商机本阶段至少一条已核验有效跟进",
+                index - 1 == STAGE_ORDER.indexOf(o.getStageCode()) &&
+                    follows.confirmedInStage(o.getId(), o.getStageCode(), o.getStageSeq()) > 0,
+                "在当前阶段新增有效跟进，再由本团队经理或管理员查验通过；旧阶段和待查验记录不计入"
             )
         );
         if (index >= 2) result.add(
@@ -762,7 +759,7 @@ public class OpportunityService {
             int index = STAGE_ORDER.indexOf(stage);
             boolean current = stage.equals(o.getStageCode());
             String next = index >= 0 && index < 4 ? STAGE_ORDER.get(index + 1) : null;
-            var gates = next == null
+            var gates = next == null || (currentIndex > index)
                 ? List.<OpportunityStageProgressVO.Requirement>of()
                 : requirements(o, next);
             String status = current

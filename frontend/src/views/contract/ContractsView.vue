@@ -1,7 +1,7 @@
 <!-- 文件作用：办理成交商机的合同登记、资料上传、核验和签署追踪。 -->
 <script setup>
 import PagedItems from '@/components/PagedItems.vue';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   ElAlert,
@@ -34,6 +34,7 @@ import {
 import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
 import * as api from '@/api/contracts';
+import { registrationErrors, registrationPayload } from '@/utils/contract-registration';
 
 const route = useRoute();
 const rows = ref([]),
@@ -54,6 +55,8 @@ const detail = ref(null),
   selectedFile = ref(null),
   progressDialog = ref(false);
 const form = reactive({});
+const editorForm = ref(null),
+  fieldErrors = ref({});
 const statusLabels = {
   DRAFT: '草稿',
   PENDING_REVIEW: '待经理核验',
@@ -65,56 +68,54 @@ const statusLabels = {
   VOID: '已撤回',
 };
 const progressLabels = {
-  INTERNAL_HANDLING: '内部办理',
-  WAIT_OUR_SIGN: '待我方签署',
-  WAIT_COUNTERPARTY_SIGN: '待对方签署',
-  BOTH_SIGNED: '双方已签署',
-  EXCEPTION: '签署异常',
+  DRAFT_GENERATED: '合同登记草稿',
+  DRAFT_REVIEW: '合同登记核对',
+  SIGNED_UPLOAD: '合同签署与上传',
+  FILE_REVIEW: '合同文件待确认',
+  FILE_CONFIRMED: '合同文件已确认',
+  EXCEPTION: '进度异常',
   WITHDRAWN: '已撤回',
+  // 只用于保留的历史记录，现行流程不再使用旧节点。
+  INTERNAL_HANDLING: '内部办理（旧）',
+  WAIT_OUR_SIGN: '待我方签署（旧）',
+  WAIT_COUNTERPARTY_SIGN: '待对方签署（旧）',
+  BOTH_SIGNED: '双方已签署（旧）',
 };
-const progressOptions = [
-  { value: 'INTERNAL_HANDLING', label: '内部办理' },
-  { value: 'WAIT_OUR_SIGN', label: '待我方签署' },
-  { value: 'WAIT_COUNTERPARTY_SIGN', label: '待对方签署' },
-  { value: 'EXCEPTION', label: '签署异常' },
-  { value: 'WITHDRAWN', label: '已撤回' },
+const normalSteps = [
+  'DRAFT_GENERATED',
+  'DRAFT_REVIEW',
+  'SIGNED_UPLOAD',
+  'FILE_REVIEW',
+  'FILE_CONFIRMED',
 ];
-const normalNextProgress = {
-  INTERNAL_HANDLING: ['WAIT_OUR_SIGN', 'EXCEPTION', 'WITHDRAWN'],
-  WAIT_OUR_SIGN: ['WAIT_COUNTERPARTY_SIGN', 'EXCEPTION', 'WITHDRAWN'],
-  WAIT_COUNTERPARTY_SIGN: ['EXCEPTION', 'WITHDRAWN'],
-  EXCEPTION: ['INTERNAL_HANDLING'],
-};
+const progressOptions = [...normalSteps, 'EXCEPTION', 'WITHDRAWN'].map((value) => ({
+  value,
+  label: progressLabels[value],
+}));
 const progressForm = reactive({ targetProgress: '', reason: '' });
-const progressTargets = computed(
-  /* 根据当前节点及角色计算可选签署目标。 */ () => {
-    if (!detail.value) return [];
-    const values = detail.value.canCorrectSigningProgress
-      ? progressOptions
-          .map(/* 将集合条目转换为所需的展示数据。 */ (item) => item.value)
-          .filter(/* 按当前业务条件筛选记录。 */ (value) => value !== detail.value.signingProgress)
-      : normalNextProgress[detail.value.signingProgress] || [];
-    return values
-      .map(
-        /* 将集合条目转换为所需的展示数据。 */ (value) =>
-          progressOptions.find(
-            /* 查找与当前代码或状态匹配的条目。 */ (item) => item.value === value,
-          ),
-      )
-      .filter(Boolean);
-  },
-);
-const signingStep = computed(
-  /* 将当前签署节点映射为进度条位置。 */ () => {
-    const index = [
-      'INTERNAL_HANDLING',
-      'WAIT_OUR_SIGN',
-      'WAIT_COUNTERPARTY_SIGN',
-      'BOTH_SIGNED',
-    ].indexOf(detail.value?.signingProgress);
-    return index === 3 ? 4 : Math.max(0, index);
-  },
-);
+/** 正常步骤由材料动作驱动，仅异常、撤回和有权恢复可供人工选择。 */
+const progressTargets = computed(() => {
+  if (!detail.value) return [];
+  const values = ['EXCEPTION', 'WITHDRAWN'].filter(
+    (value) => value !== detail.value.signingProgress,
+  );
+  if (detail.value.canCorrectSigningProgress) values.unshift('NORMAL');
+  return values.map((value) => ({
+    value,
+    label:
+      value === 'NORMAL'
+        ? `恢复正常（${progressLabels[detail.value.resumeSigningProgress] || '原步骤'}）`
+        : progressLabels[value],
+  }));
+});
+/** 暂停时仍标明保存的步骤，完成节点显示五步全部完成。 */
+const signingStep = computed(() => {
+  const step = ['EXCEPTION', 'WITHDRAWN'].includes(detail.value?.signingProgress)
+    ? detail.value.resumeSigningProgress
+    : detail.value?.signingProgress;
+  const index = normalSteps.indexOf(step);
+  return index === 4 ? 5 : Math.max(0, index);
+});
 const dialogOpen = computed({
   /* 将弹窗模式转换为是否打开。 */ get: () => dialog.value !== '',
   /* 关闭弹窗时清理操作模式。 */ set: (value) => {
@@ -124,6 +125,16 @@ const dialogOpen = computed({
     }
   },
 });
+/** 标出最新实际签署文件，历史版本仍保留可查。 */
+const latestSignedId = computed(
+  () =>
+    (detail.value?.attachments || [])
+      .filter((item) => item.materialType === 'SIGNED_CONTRACT')
+      .reduce(
+        (latest, item) => (!latest || item.versionNo > latest.versionNo ? item : latest),
+        null,
+      )?.id,
+);
 const filterStatuses = computed(
   /* 根据当前列表模式提供合同筛选状态。 */ () =>
     listMode.value === 'registration' ? { UNREGISTERED: '未登记', ...statusLabels } : statusLabels,
@@ -135,7 +146,7 @@ const money = (value) =>
     maximumFractionDigits: 2,
   });
 /** 将日期时间显示为可读文字或缺省提示。 */
-const time = (value) => (value ? value.replace('T', ' ') : '暂无');
+const time = (value) => (value ? String(value).replace('T', ' ').substring(0, 19) : '暂无');
 let generation = 0;
 
 /** 加载当前页面所需的数据并维护加载和错误状态。 */
@@ -199,7 +210,10 @@ async function openDetail(rowOrId) {
 /** 为当前成交商机打开合同登记或资料上传入口。 */
 async function uploadFromArchive(row) {
   await openDetail(row);
-  if (detailOpen.value && detail.value?.canEdit) openUpload();
+  if (detailOpen.value && detail.value?.canEdit) {
+    if (detail.value.signingProgress === 'DRAFT_GENERATED') openEdit();
+    else openUpload();
+  }
 }
 /** 把合同登记字段带入编辑弹窗。 */
 function openEdit() {
@@ -214,8 +228,21 @@ function openEdit() {
     signedAt: detail.value.signedAt || '',
     expireDate: detail.value.expireDate || '',
     description: detail.value.description || '',
+    ourContactName: detail.value.ourContactName || '',
+    ourContactPhone: detail.value.ourContactPhone || '',
+    counterpartyContactName: detail.value.counterpartyContactName || '',
+    counterpartyContactPhone: detail.value.counterpartyContactPhone || '',
+    ourAddress: detail.value.ourAddress || '',
+    counterpartyAddress: detail.value.counterpartyAddress || '',
+    ourCreditCode: detail.value.ourCreditCode || '',
+    counterpartyCreditCode: detail.value.counterpartyCreditCode || '',
+    paymentTerms: detail.value.paymentTerms || '',
+    deliveryTerms: detail.value.deliveryTerms || '',
+    plannedSignedAt: detail.value.plannedSignedAt || '',
+    performanceStartDate: detail.value.performanceStartDate || '',
   });
   formError.value = '';
+  fieldErrors.value = {};
   dialog.value = 'edit';
 }
 /** 初始化附件上传表单。 */
@@ -223,6 +250,7 @@ function openUpload() {
   selectedFile.value = null;
   form.note = '';
   formError.value = '';
+  fieldErrors.value = {};
   dialog.value = 'upload';
 }
 /** 办理成交商机的合同登记草稿或打开已有登记。 */
@@ -235,7 +263,7 @@ async function registrationAction(row, mode) {
     detailOpen.value = true;
     detailLoading.value = false;
     if (current.canEdit) {
-      if (mode === 'upload') openUpload();
+      if (mode === 'upload' && current.signingProgress !== 'DRAFT_GENERATED') openUpload();
       else openEdit();
     }
     await load();
@@ -250,19 +278,41 @@ async function registrationAction(row, mode) {
 function chooseFile(event) {
   selectedFile.value = event.target.files?.[0] || null;
 }
-/** 按当前弹窗模式保存合同字段或上传新的资料版本。 */
-async function save() {
+/** 在固定按钮区显示失败原因，并滚动到需要修改的第一个字段。 */
+async function showFormErrors(errors = {}, message = '') {
+  fieldErrors.value = errors;
+  const messages = Object.values(errors);
+  formError.value = messages.length
+    ? `${messages[0]}${messages.length > 1 ? `；另有${messages.length - 1}项，请按字段提示修改` : ''}`
+    : message || '操作未完成，请稍后重试';
+  await nextTick();
+  if (dialog.value === 'edit' && messages.length) {
+    editorForm.value?.scrollToField(Object.keys(errors)[0]);
+  }
+}
+/** 按保存或送审要求校验登记信息，失败保留表单及具体原因。 */
+async function save(submitRegistration = false) {
+  if (saving.value) return;
   formError.value = '';
-  if (
-    dialog.value === 'edit' &&
-    (!form.contractName?.trim() || form.contractAmount == null || form.contractAmount < 0)
-  ) {
-    formError.value = '请填写合同名称和非负合同金额';
-    return;
+  fieldErrors.value = {};
+  const payload = dialog.value === 'edit' ? registrationPayload(form) : null;
+  if (payload) {
+    const errors = registrationErrors(payload, submitRegistration === true);
+    if (Object.keys(errors).length) {
+      await showFormErrors(errors);
+      return;
+    }
   }
   saving.value = true;
   try {
-    if (dialog.value === 'edit') await api.editContract(detail.value.id, form);
+    if (dialog.value === 'edit') {
+      await api.editContract(detail.value.id, payload);
+      const current = await api.getContract(detail.value.id);
+      detail.value = current;
+      form.version = current.version;
+      if (submitRegistration === true)
+        await api.submitContractDraft(current.id, { version: current.version });
+    }
     if (dialog.value === 'upload') {
       if (!selectedFile.value) {
         formError.value = '请选择合同文件';
@@ -270,20 +320,63 @@ async function save() {
         return;
       }
       const data = new FormData();
-      data.append('materialType', 'SIGNED_CONTRACT');
+      data.append('materialType', detail.value.uploadMaterialType);
       data.append('note', form.note || '');
       data.append('file', selectedFile.value);
       await api.uploadContractAttachment(detail.value.id, data);
     }
     dialog.value = '';
     selectedFile.value = null;
-    ElMessage.success('操作成功');
+    ElMessage.success(submitRegistration === true ? '登记表已提交经理或管理员核对' : '操作成功');
     await load();
     await openDetail(detail.value.id);
   } catch (error) {
-    formError.value = error.message;
+    await showFormErrors(error.data?.fieldErrors || {}, error.message);
   } finally {
     saving.value = false;
+  }
+}
+/** 提交当前已保存的在线登记信息，不生成草稿文件。 */
+async function submitDraft() {
+  try {
+    await ElMessageBox.confirm(
+      '将提交已保存的合同登记表供经理或管理员核对；待审期间锁定信息，负责人可撤回修改。是否继续？',
+      '提交登记核对',
+      { type: 'info' },
+    );
+    acting.value = true;
+    const id = detail.value.id;
+    await api.submitContractDraft(id, { version: detail.value.version });
+    ElMessage.success('登记表已提交经理或管理员核对');
+    await load();
+    await openDetail(id);
+  } catch (error) {
+    if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message);
+  } finally {
+    acting.value = false;
+  }
+}
+/** 负责人主动撤回待审表单，回到登记草稿继续编辑。 */
+async function withdrawDraft() {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '填写撤回原因，撤回后可修改并重新提交。',
+      '撤回本次登记提交',
+      {
+        inputType: 'textarea',
+        inputValidator: (text) => (!!text?.trim() && text.length <= 500) || '请填写1至500字原因',
+      },
+    );
+    const id = detail.value.id;
+    acting.value = true;
+    await api.withdrawContractDraft(id, { version: detail.value.version, reason: value.trim() });
+    ElMessage.success('已撤回登记提交，可继续修改');
+    await load();
+    await openDetail(id);
+  } catch (error) {
+    if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message);
+  } finally {
+    acting.value = false;
   }
 }
 /** 确认后提交合同资料供内部核验。 */
@@ -302,11 +395,12 @@ async function submit() {
 }
 /** 填写核验意见后通过或退回合同资料。 */
 async function review(pass) {
+  const draft = detail.value.signingProgress === 'DRAFT_REVIEW';
   const opinion = await ElMessageBox.prompt(
-    pass ? '填写核验意见' : '填写退回原因',
-    pass ? '通过合同核验' : '退回合同资料',
+    pass ? (draft ? '填写登记核对意见' : '填写文件核验意见') : '填写退回原因',
+    pass ? (draft ? '通过登记核对' : '通过合同核验') : '退回合同资料',
     {
-      inputValue: pass ? '已核对登记信息与签署资料' : '',
+      inputValue: pass ? (draft ? '已核对登记信息' : '已核对登记信息与最新签署文件') : '',
       /* 要求核验或退回意见非空。 */ inputValidator: (value) =>
         value?.trim() ? true : '请填写意见',
     },
@@ -319,7 +413,11 @@ async function review(pass) {
       opinion: opinion.value,
     });
     ElMessage.success(
-      pass ? '核验通过，系统已检查商机自动推进条件，可在商机详情查看结果' : '已退回补充',
+      pass
+        ? draft
+          ? '登记核对通过，已进入合同签署与上传'
+          : '文件核验通过，系统已检查商机自动推进条件'
+        : '已退回补充',
     );
     await load();
     await openDetail(detail.value.id);
@@ -374,7 +472,7 @@ onMounted(
     <PageHeading
       title="合同登记"
       eyebrow="CONTRACT"
-      description="登记实际合同信息和签署资料；系统不生成合同正文，也不判断合同法律效力。"
+      description="在线填写并提交合同登记表；核对通过后上传实际签署合同，核验最新版本并保留全部历史。"
     />
     <el-tabs v-model="listMode">
       <el-tab-pane label="成交商单登记" name="registration" />
@@ -471,30 +569,41 @@ onMounted(
               type="primary"
               :disabled="acting"
               @click="registrationAction(row, 'edit')"
-            >登记信息</el-button>
+              >登记信息</el-button
+            >
             <el-button
               v-if="row.canUpload"
               link
               type="primary"
               :disabled="acting"
               @click="registrationAction(row, 'upload')"
-            >上传合同</el-button>
+              >{{
+                !row.signingProgress || row.signingProgress === 'DRAFT_GENERATED'
+                  ? '填写登记草稿'
+                  : '上传签署合同'
+              }}</el-button
+            >
             <el-button
               v-if="row.contractId"
               link
               type="primary"
               :disabled="acting"
               @click="openDetail(row.contractId)"
-            >详情</el-button>
+              >详情</el-button
+            >
           </template>
           <template v-else>
             <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button v-if="row.canEdit" link type="primary" @click="uploadFromArchive(row)">上传合同</el-button>
+            <el-button v-if="row.canEdit" link type="primary" @click="uploadFromArchive(row)">{{
+              row.signingProgress === 'DRAFT_GENERATED' ? '填写登记草稿' : '上传签署合同'
+            }}</el-button>
           </template>
         </template>
       </el-table-column>
     </DataTable>
-    <p class="scope-note">合同登记支持一条商机一份主合同登记；不同业务领域的具体条款由实际合同文件承载，补充协议以新资料版本归档。</p>
+    <p class="scope-note">
+      合同登记支持一条商机一份主合同登记；不同业务领域的具体条款由实际合同文件承载，补充协议以新资料版本归档。
+    </p>
 
     <el-drawer v-model="detailOpen" title="合同详情" size="min(900px, 100%)">
       <div v-if="detailLoading" v-loading="true" class="loading" />
@@ -513,48 +622,72 @@ onMounted(
           type="info"
           :closable="false"
           show-icon
-          title="合同正文由业务人员根据实际交易在线下协商和签署，本页面只登记、归档和核验资料。"
+          title="合同草稿就是在线登记表，可反复保存修改后提交核对，不需要草稿文件；实际签署合同在登记核对通过后上传。"
         />
-        <p v-if="detail.canEdit" class="scope-note">提交核验前须补齐双方签约主体、合同金额、实际签订日期，并上传签署资料。草稿可先保存；核验通过且商机前序条件齐全后，系统自动推进赢单。</p>
+        <p v-if="detail.canEdit" class="scope-note">
+          草稿可先保存；提交登记核对前需补齐名称、业务类型、双方主体及联系人电话、金额和业务内容。实际签订日期可在签署后补填；最终文件核验通过且商机前序条件齐全后，系统自动推进赢单。
+        </p>
         <el-divider content-position="left">签署进度</el-divider>
         <el-alert
           v-if="detail.signingProgress === 'EXCEPTION'"
           type="warning"
           :closable="false"
-          title="当前存在签署异常；补正后可回到“内部办理”继续跟踪。"
+          title="当前进度异常；经理或管理员可恢复到暂停前步骤，恢复时重新核对材料。"
         />
         <el-alert
           v-if="detail.signingProgress === 'WITHDRAWN'"
           type="info"
           :closable="false"
-          title="该登记已撤回并终止；如需重新办理，请从成交商机新建登记。"
+          title="当前登记已暂停为撤回；经理或管理员可恢复原步骤，既有文件和确认历史保留。"
         />
-        <el-steps
-          v-if="!['EXCEPTION', 'WITHDRAWN'].includes(detail.signingProgress)"
-          :active="signingStep"
-          finish-status="success"
-          align-center
-          class="signing-steps"
-        >
-          <el-step title="内部办理" />
-          <el-step title="待我方签署" />
-          <el-step title="待对方签署" />
-          <el-step title="双方已签署" />
+        <el-steps :active="signingStep" finish-status="success" align-center class="signing-steps">
+          <el-step v-for="step in normalSteps" :key="step" :title="progressLabels[step]" />
         </el-steps>
-        <p class="scope-note current-progress">当前签署节点：<strong>{{ progressLabels[detail.signingProgress] || detail.signingProgress }}</strong>；内部核验状态：<strong>{{ statusLabels[detail.contractStatus] || detail.contractStatus }}</strong>
+        <p class="scope-note current-progress">
+          当前签署节点：<strong>{{
+            progressLabels[detail.signingProgress] || detail.signingProgress
+          }}</strong
+          >；内部核验状态：<strong>{{
+            statusLabels[detail.contractStatus] || detail.contractStatus
+          }}</strong>
         </p>
+        <el-alert
+          :title="detail.progressInstruction"
+          :closable="false"
+          type="info"
+          class="progress-help"
+        />
         <div class="actions">
           <el-button v-if="detail.canEdit" @click="openEdit">编辑登记</el-button>
-          <el-button v-if="detail.canEdit" @click="openUpload">上传合同</el-button>
+          <el-button
+            v-if="detail.canSubmitDraft"
+            type="primary"
+            :loading="acting"
+            @click="submitDraft"
+          >
+            提交登记核对
+          </el-button>
+          <el-button v-if="detail.canWithdrawDraft" :loading="acting" @click="withdrawDraft"
+            >撤回本次登记提交</el-button
+          >
+          <el-button v-if="detail.canEdit && detail.uploadMaterialType" @click="openUpload"
+            >上传实际签署合同</el-button
+          >
           <el-button
             v-if="detail.canUpdateSigningProgress || detail.canCorrectSigningProgress"
             @click="openProgress"
           >
-            {{ detail.canCorrectSigningProgress ? '管理员纠正进度' : '更新签署进度' }}
+            {{ detail.canCorrectSigningProgress ? '恢复／调整异常状态' : '异常／撤回' }}
           </el-button>
-          <el-button v-if="detail.canSubmit" type="primary" @click="submit">提交经理核验</el-button>
-          <el-button v-if="detail.canReview" type="success" @click="review(true)">核验通过</el-button>
-          <el-button v-if="detail.canReview" type="warning" @click="review(false)">退回补充</el-button>
+          <el-button v-if="detail.canSubmit" type="primary" @click="submit"
+            >确定提交签署文件</el-button
+          >
+          <el-button v-if="detail.canReview" type="success" @click="review(true)"
+            >核验通过</el-button
+          >
+          <el-button v-if="detail.canReview" type="warning" @click="review(false)"
+            >退回补充</el-button
+          >
         </div>
         <el-descriptions :column="1" border>
           <el-descriptions-item label="内部编号">{{ detail.contractNo }}</el-descriptions-item>
@@ -567,22 +700,77 @@ onMounted(
           <el-descriptions-item label="签约主体">
             {{ detail.ourPartyName || '尚未登记' }} / {{ detail.counterpartyName || '尚未登记' }}
           </el-descriptions-item>
-          <el-descriptions-item label="合同金额">¥ {{ money(detail.contractAmount) }}
+          <el-descriptions-item label="合同金额"
+            >¥ {{ money(detail.contractAmount) }}
           </el-descriptions-item>
           <el-descriptions-item label="签订日期 / 履行截止">
             {{ detail.signedAt || '尚未登记' }} / {{ detail.expireDate || '尚未登记' }}
           </el-descriptions-item>
+          <el-descriptions-item label="我方联系人 / 电话"
+            >{{ detail.ourContactName || '尚未填写' }} /
+            {{ detail.ourContactPhone || '尚未填写' }}</el-descriptions-item
+          >
+          <el-descriptions-item label="对方联系人 / 电话"
+            >{{ detail.counterpartyContactName || '尚未填写' }} /
+            {{ detail.counterpartyContactPhone || '尚未填写' }}</el-descriptions-item
+          >
+          <el-descriptions-item label="我方地址 / 信用代码"
+            >{{ detail.ourAddress || '尚未填写' }} /
+            {{ detail.ourCreditCode || '尚未填写' }}</el-descriptions-item
+          >
+          <el-descriptions-item label="对方地址 / 信用代码"
+            >{{ detail.counterpartyAddress || '尚未填写' }} /
+            {{ detail.counterpartyCreditCode || '尚未填写' }}</el-descriptions-item
+          >
+          <el-descriptions-item label="预计签订 / 履行开始"
+            >{{ detail.plannedSignedAt || '尚未填写' }} /
+            {{ detail.performanceStartDate || '尚未填写' }}</el-descriptions-item
+          >
+          <el-descriptions-item label="付款约定">{{
+            detail.paymentTerms || '尚未填写'
+          }}</el-descriptions-item>
+          <el-descriptions-item label="交付或验收约定">{{
+            detail.deliveryTerms || '尚未填写'
+          }}</el-descriptions-item>
           <el-descriptions-item label="业务摘要">
             {{ detail.description || '尚未填写' }}
           </el-descriptions-item>
         </el-descriptions>
-        <el-divider content-position="left">签署资料版本</el-divider>
+        <el-divider content-position="left">实际签署文件及历史版本</el-divider>
+        <p class="scope-note">
+          允许上传多个签署文件版本；核验最新一版，所有历史文件保留可查。合同登记表不要求草稿文件。
+        </p>
         <PagedItems :items="detail.attachments" v-slot="{ rows: pageRows }">
           <el-table :data="pageRows" empty-text="尚未上传签署资料">
-            <el-table-column prop="fileName" label="文件" min-width="180" />
+            <el-table-column label="文件" min-width="180"
+              ><template #default="{ row }"
+                >{{ row.fileName }}
+                <el-tag v-if="row.id === latestSignedId" size="small" type="info"
+                  >最新签署版</el-tag
+                >
+              </template></el-table-column
+            >
             <el-table-column prop="versionNo" label="版本" width="70" />
-            <el-table-column prop="confirmStatus" label="核验" width="90" />
-            <el-table-column prop="uploadedAt" label="上传时间" min-width="150" />
+            <el-table-column label="资料类型" width="130"
+              ><template #default="{ row }">{{
+                {
+                  CONTRACT_DRAFT: '历史草稿文件',
+                  SIGNED_CONTRACT: '实际签署合同',
+                  SUPPLEMENT: '补充资料',
+                }[row.materialType] || row.materialType
+              }}</template></el-table-column
+            >
+            <el-table-column label="核验" width="90"
+              ><template #default="{ row }">{{
+                { PENDING: '待核验', PASSED: '已通过', REJECTED: '已退回' }[row.confirmStatus] ||
+                row.confirmStatus
+              }}</template></el-table-column
+            >
+            <el-table-column prop="uploaderName" label="上传人" width="110" />
+            <el-table-column prop="confirmOpinion" label="核验意见" min-width="140" />
+            <el-table-column label="上传时间" min-width="175"
+              ><template #default="{ row }">{{ time(row.uploadedAt) }}</template></el-table-column
+            >
             <el-table-column label="操作" width="80">
               <template #default="{ row }">
                 <el-button link type="primary" @click="download(row)">下载</el-button>
@@ -604,9 +792,16 @@ onMounted(
                   item.fromProgress
                     ? `${progressLabels[item.fromProgress] || item.fromProgress} → `
                     : ''
-                }}{{ item.reason }}<span v-if="item.correction">（管理员纠正）</span>
+                }}{{ item.reason }}<span v-if="item.correction">（管理人员恢复）</span>
               </p>
-              <p>操作人：{{ item.operatorName }} · {{ item.operatorRole }}</p>
+              <p>
+                操作人：{{ item.operatorName }} ·
+                {{
+                  { ADMIN: '管理员', MANAGER: '团队经理', SPECIALIST: '专员', SYSTEM: '系统' }[
+                    item.operatorRole
+                  ] || item.operatorRole
+                }}
+              </p>
             </el-timeline-item>
           </el-timeline>
         </PagedItems>
@@ -620,7 +815,7 @@ onMounted(
               :timestamp="time(item.occurredAt)"
             >
               <strong>{{ item.reason || item.actionCode }}</strong>
-              <p>操作人：{{ item.operatorId || '系统任务' }}</p>
+              <p>操作人：{{ item.operatorName || '系统任务' }}</p>
             </el-timeline-item>
           </el-timeline>
         </PagedItems>
@@ -630,77 +825,281 @@ onMounted(
     <el-dialog
       v-model="dialogOpen"
       :title="dialog === 'edit' ? '编辑合同登记' : '上传合同'"
-      width="min(600px, 94%)"
+      width="min(780px, 94%)"
+      top="5vh"
+      append-to-body
+      body-class="contract-editor-body"
       destroy-on-close
       :close-on-click-modal="!saving"
       :close-on-press-escape="!saving"
       :show-close="!saving"
     >
-      <el-alert
-        v-if="formError"
-        :title="formError"
-        type="error"
-        :closable="false"
-        show-icon
-        class="form-error"
-      />
-      <el-form label-position="top" @submit.prevent="save">
+      <el-form
+        ref="editorForm"
+        class="contract-registration-form"
+        :model="form"
+        label-position="top"
+        :scroll-into-view-options="{ block: 'center' }"
+        @submit.prevent="save()"
+      >
+        <el-alert
+          v-if="dialog === 'edit' && detail?.canSubmitDraft"
+          type="info"
+          :closable="false"
+          title="可先保存未填完的草稿；标星内容在提交核对前必填。已填写的电话、信用代码及日期需符合格式，不需要草稿文件。"
+          class="form-error"
+        />
         <template v-if="dialog === 'edit'">
-          <el-form-item label="合同名称" required>
-            <el-input v-model="form.contractName" maxlength="160" />
-          </el-form-item>
-          <el-form-item label="正式合同编号">
-            <el-input v-model="form.externalContractNo" maxlength="64" />
-          </el-form-item>
-          <el-form-item label="业务类型">
-            <el-input
-              v-model="form.businessType"
-              maxlength="64"
-              placeholder="软件开发、设备销售、咨询服务等"
-            />
-          </el-form-item>
-          <el-form-item label="我方签约主体">
-            <el-input v-model="form.ourPartyName" maxlength="160" />
-          </el-form-item>
-          <el-form-item label="对方签约主体">
-            <el-input v-model="form.counterpartyName" maxlength="160" />
-          </el-form-item>
-          <el-form-item label="最终合同金额（元）" required>
-            <el-input-number
-              v-model="form.contractAmount"
-              :min="0"
-              :precision="2"
-              controls-position="right"
-            />
-          </el-form-item>
-          <el-form-item label="签订日期">
-            <el-date-picker v-model="form.signedAt" type="date" value-format="YYYY-MM-DD" />
-          </el-form-item>
-          <el-form-item label="履行截止日期">
-            <el-date-picker v-model="form.expireDate" type="date" value-format="YYYY-MM-DD" />
-          </el-form-item>
-          <el-form-item label="业务摘要">
-            <el-input v-model="form.description" type="textarea" maxlength="1000" show-word-limit />
-          </el-form-item>
+          <h3 class="registration-section">基本信息</h3>
+          <div class="registration-grid">
+            <el-form-item label="内部登记编号（系统生成）"
+              ><el-input :validate-event="false" :model-value="detail.contractNo" disabled
+            /></el-form-item>
+            <el-form-item
+              label="正式合同编号（未确定可先留空）"
+              prop="externalContractNo"
+              :error="fieldErrors.externalContractNo"
+              ><el-input :validate-event="false" v-model="form.externalContractNo" maxlength="64"
+            /></el-form-item>
+            <el-form-item
+              label="合同名称"
+              prop="contractName"
+              :error="fieldErrors.contractName"
+              required
+              ><el-input :validate-event="false" v-model="form.contractName" maxlength="160"
+            /></el-form-item>
+            <el-form-item
+              label="业务类型"
+              prop="businessType"
+              :error="fieldErrors.businessType"
+              required
+              ><el-input
+                :validate-event="false"
+                v-model="form.businessType"
+                maxlength="64"
+                placeholder="软件开发、设备销售、咨询服务等"
+            /></el-form-item>
+            <el-form-item
+              label="合同金额（元）"
+              prop="contractAmount"
+              :error="fieldErrors.contractAmount"
+              required
+              ><el-input-number
+                :validate-event="false"
+                v-model="form.contractAmount"
+                :min="0"
+                :precision="2"
+                controls-position="right"
+            /></el-form-item>
+            <el-form-item
+              label="预计签订日期"
+              prop="plannedSignedAt"
+              :error="fieldErrors.plannedSignedAt"
+              ><el-date-picker
+                :validate-event="false"
+                v-model="form.plannedSignedAt"
+                type="date"
+                value-format="YYYY-MM-DD"
+            /></el-form-item>
+          </div>
+          <h3 class="registration-section">我方信息</h3>
+          <div class="registration-grid">
+            <el-form-item
+              label="我方公司／签约主体"
+              prop="ourPartyName"
+              :error="fieldErrors.ourPartyName"
+              required
+              ><el-input :validate-event="false" v-model="form.ourPartyName" maxlength="160"
+            /></el-form-item>
+            <el-form-item
+              label="我方统一社会信用代码（选填）"
+              prop="ourCreditCode"
+              :error="fieldErrors.ourCreditCode"
+              ><el-input
+                :validate-event="false"
+                v-model="form.ourCreditCode"
+                maxlength="18"
+                placeholder="可留空；填写时须为18位字母或数字"
+              />
+              <p class="field-help">选填；填写时须为18位字母或数字，小写自动转大写。</p>
+            </el-form-item>
+            <el-form-item
+              label="我方联系人"
+              prop="ourContactName"
+              :error="fieldErrors.ourContactName"
+              required
+              ><el-input :validate-event="false" v-model="form.ourContactName" maxlength="64"
+            /></el-form-item>
+            <el-form-item
+              label="我方联系电话"
+              prop="ourContactPhone"
+              :error="fieldErrors.ourContactPhone"
+              required
+              ><el-input :validate-event="false" v-model="form.ourContactPhone" maxlength="40"
+            /></el-form-item>
+            <el-form-item
+              label="我方地址"
+              prop="ourAddress"
+              :error="fieldErrors.ourAddress"
+              class="full-width"
+              ><el-input :validate-event="false" v-model="form.ourAddress" maxlength="255"
+            /></el-form-item>
+          </div>
+          <h3 class="registration-section">对方信息</h3>
+          <div class="registration-grid">
+            <el-form-item
+              label="对方公司／签约主体"
+              prop="counterpartyName"
+              :error="fieldErrors.counterpartyName"
+              required
+              ><el-input :validate-event="false" v-model="form.counterpartyName" maxlength="160"
+            /></el-form-item>
+            <el-form-item
+              label="对方统一社会信用代码（选填）"
+              prop="counterpartyCreditCode"
+              :error="fieldErrors.counterpartyCreditCode"
+              ><el-input
+                :validate-event="false"
+                v-model="form.counterpartyCreditCode"
+                maxlength="18"
+                placeholder="可留空；填写时须为18位字母或数字"
+              />
+              <p class="field-help">选填；填写时须为18位字母或数字，小写自动转大写。</p>
+            </el-form-item>
+            <el-form-item
+              label="对方联系人"
+              prop="counterpartyContactName"
+              :error="fieldErrors.counterpartyContactName"
+              required
+              ><el-input
+                :validate-event="false"
+                v-model="form.counterpartyContactName"
+                maxlength="64"
+            /></el-form-item>
+            <el-form-item
+              label="对方联系电话"
+              prop="counterpartyContactPhone"
+              :error="fieldErrors.counterpartyContactPhone"
+              required
+              ><el-input
+                :validate-event="false"
+                v-model="form.counterpartyContactPhone"
+                maxlength="40"
+            /></el-form-item>
+            <el-form-item
+              label="对方地址"
+              prop="counterpartyAddress"
+              :error="fieldErrors.counterpartyAddress"
+              class="full-width"
+              ><el-input :validate-event="false" v-model="form.counterpartyAddress" maxlength="255"
+            /></el-form-item>
+          </div>
+          <h3 class="registration-section">业务内容和履行安排</h3>
+          <el-form-item
+            label="合同标的／业务内容"
+            prop="description"
+            :error="fieldErrors.description"
+            required
+            ><el-input
+              :validate-event="false"
+              v-model="form.description"
+              type="textarea"
+              :rows="3"
+              maxlength="1000"
+              show-word-limit
+          /></el-form-item>
+          <el-form-item
+            label="付款约定（仅登记，不自动生成回款计划）"
+            prop="paymentTerms"
+            :error="fieldErrors.paymentTerms"
+            ><el-input
+              :validate-event="false"
+              v-model="form.paymentTerms"
+              type="textarea"
+              :rows="2"
+              maxlength="1000"
+              show-word-limit
+          /></el-form-item>
+          <el-form-item
+            label="交付或验收约定"
+            prop="deliveryTerms"
+            :error="fieldErrors.deliveryTerms"
+            ><el-input
+              :validate-event="false"
+              v-model="form.deliveryTerms"
+              type="textarea"
+              :rows="2"
+              maxlength="1000"
+              show-word-limit
+          /></el-form-item>
+          <div class="registration-grid">
+            <el-form-item
+              label="履行开始日期"
+              prop="performanceStartDate"
+              :error="fieldErrors.performanceStartDate"
+              ><el-date-picker
+                :validate-event="false"
+                v-model="form.performanceStartDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+            /></el-form-item>
+            <el-form-item label="履行截止日期" prop="expireDate" :error="fieldErrors.expireDate"
+              ><el-date-picker
+                :validate-event="false"
+                v-model="form.expireDate"
+                type="date"
+                value-format="YYYY-MM-DD"
+            /></el-form-item>
+            <el-form-item
+              label="实际签订日期（实际签署后填写）"
+              prop="signedAt"
+              :error="fieldErrors.signedAt"
+              ><el-date-picker
+                :validate-event="false"
+                v-model="form.signedAt"
+                type="date"
+                value-format="YYYY-MM-DD"
+            /></el-form-item>
+          </div>
         </template>
         <template v-else>
-          <el-form-item label="签署合同文件" required>
+          <el-form-item label="实际签署合同文件" required>
             <input type="file" accept=".pdf,.doc,.docx,application/pdf" @change="chooseFile" />
-            <p class="scope-note">支持 PDF、Word，单个文件不超过20MB；文件作为版本保存，不覆盖历史资料。</p>
+            <p class="scope-note">
+              支持 PDF、Word，单个文件不超过20MB；文件作为版本保存，不覆盖历史资料。
+            </p>
           </el-form-item>
           <el-form-item label="文件说明">
-            <el-input v-model="form.note" maxlength="500" />
+            <el-input :validate-event="false" v-model="form.note" maxlength="500" />
           </el-form-item>
         </template>
       </el-form>
       <template #footer>
+        <el-alert
+          v-if="formError"
+          :title="formError"
+          type="error"
+          :closable="false"
+          show-icon
+          class="submit-error"
+          aria-live="polite"
+        />
         <el-button :disabled="saving" @click="dialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="save">保存</el-button>
+        <el-button
+          v-if="dialog === 'edit' && detail?.canSubmitDraft"
+          type="primary"
+          :loading="saving"
+          @click="save(true)"
+        >
+          保存并提交登记核对
+        </el-button>
+        <el-button type="primary" :loading="saving" @click="save()">保存</el-button>
       </template>
     </el-dialog>
     <el-dialog
       v-model="progressDialog"
-      :title="detail?.canCorrectSigningProgress ? '管理员纠正签署进度' : '更新签署进度'"
+      :title="'异常、撤回与恢复'"
+      append-to-body
       width="min(520px, 94%)"
       :close-on-click-modal="!saving"
     >
@@ -708,7 +1107,7 @@ onMounted(
         v-if="detail?.canCorrectSigningProgress"
         type="warning"
         :closable="false"
-        title="纠正操作会记录操作人、前后状态和原因；双方已签署必须通过文件提交与内部核验完成。"
+        title="恢复到暂停前步骤并重新核对材料；正常进度必须通过上传、提交和核验推进。"
         class="form-error"
       />
       <el-form label-position="top">
@@ -729,7 +1128,7 @@ onMounted(
           v-if="progressForm.targetProgress === 'WITHDRAWN'"
           type="info"
           :closable="false"
-          title="撤回后不可恢复；已有签署文件的登记不能撤回，需保留原档并另建登记。"
+          title="撤回后暂停办理，保留文件和审批结果；经理或管理员可核对条件后恢复原步骤。"
           class="form-error"
         />
         <el-form-item label="操作原因" required>
@@ -743,13 +1142,32 @@ onMounted(
           :loading="saving"
           :disabled="!progressForm.targetProgress || !progressForm.reason.trim()"
           @click="saveProgress"
-        >确认更新</el-button>
+          >确认更新</el-button
+        >
       </template>
     </el-dialog>
   </div>
 </template>
 
 <style scoped>
+:global(.contract-editor-body) {
+  max-height: 65vh;
+  overflow-y: auto;
+}
+.registration-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+.registration-grid .full-width {
+  grid-column: 1 / -1;
+}
+.registration-section {
+  margin: 16px 0 14px;
+  color: var(--crm-text);
+  font-size: 15px;
+}
+
 .toolbar {
   display: flex;
   gap: 12px;
@@ -813,6 +1231,22 @@ onMounted(
 .form-error {
   margin-bottom: 16px;
 }
+.submit-error {
+  margin-bottom: 12px;
+  text-align: left;
+}
+.contract-registration-form :deep(.el-form-item__error) {
+  position: static;
+  width: 100%;
+  padding-top: 4px;
+  line-height: 1.5;
+}
+.field-help {
+  margin: 4px 0 0;
+  color: var(--crm-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .el-timeline {
   padding: 12px 8px 0 16px;
 }
@@ -821,6 +1255,9 @@ onMounted(
   font-size: 13px;
 }
 @media (max-width: 600px) {
+  .registration-grid {
+    grid-template-columns: 1fr;
+  }
   .toolbar .el-input,
   .toolbar .el-select {
     width: 100%;

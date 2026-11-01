@@ -24,6 +24,7 @@ public class Opportunity {
     private Long ownerId;
     private Long teamId;
     private String stageCode;
+    private Long stageSeq;
     private String activityStatus;
     private Integer stagnationDays;
     private Integer graceDays;

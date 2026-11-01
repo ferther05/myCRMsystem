@@ -20,6 +20,7 @@ spring:
       max-request-size: 22MB
   jackson:
     time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
     default-property-inclusion: always
     serialization:
       write-dates-as-timestamps: false
@@ -69,6 +70,9 @@ mybatis-plus:
       id-type: auto
 
 crm:
+  files:
+    # 合同附件保存在后端本机，下载仍经过登录和合同归属权限校验。
+    root: ${CRM_FILES_ROOT:../output/contract-files}
   security:
     jwt:
       secret: ${CRM_JWT_SECRET:}

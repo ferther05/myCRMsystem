@@ -24,7 +24,7 @@ public interface ContractMapper {
     String FIELDS =
         "SELECT c.id,c.contract_no,c.external_contract_no,c.customer_id,cu.customer_name,c.opportunity_id,o.opportunity_name," +
         "c.owner_id,u.real_name owner_name,c.team_id,t.team_name,c.contract_name,c.business_type,c.our_party_name,c.counterparty_name," +
-        "c.contract_amount,c.signed_at,c.expire_date,c.contract_status,c.signing_progress,c.payment_status,c.received_amount,c.outstanding_amount," +
+        "c.contract_amount,c.signed_at,c.expire_date,c.contract_status,c.signing_progress,c.resume_signing_progress,c.payment_status,c.received_amount,c.outstanding_amount," +
         "c.version,c.created_at,c.updated_at FROM crm_contract c JOIN crm_customer cu ON cu.id=c.customer_id " +
         "JOIN crm_opportunity o ON o.id=c.opportunity_id JOIN sys_user u ON u.id=c.owner_id JOIN sys_team t ON t.id=c.team_id ";
 
@@ -88,16 +88,26 @@ public interface ContractMapper {
     /** 新增数据库记录。 */
     @Insert(
         "INSERT INTO crm_contract(contract_no,external_contract_no,customer_id,opportunity_id,owner_id,team_id,contract_name,business_type,our_party_name,counterparty_name,description,contract_amount,contract_status,signing_progress,payment_status,received_amount,outstanding_amount,version,created_by,created_at,updated_at) " +
-            "VALUES(#{c.contractNo},#{c.externalContractNo},#{c.customerId},#{c.opportunityId},#{c.ownerId},#{c.teamId},#{c.contractName},#{c.businessType},#{c.ourPartyName},#{c.counterpartyName},#{c.description},#{c.contractAmount},'DRAFT','INTERNAL_HANDLING','UNPAID',0,#{c.outstandingAmount},0,#{c.createdBy},#{c.createdAt},#{c.updatedAt})"
+            "VALUES(#{c.contractNo},#{c.externalContractNo},#{c.customerId},#{c.opportunityId},#{c.ownerId},#{c.teamId},#{c.contractName},#{c.businessType},#{c.ourPartyName},#{c.counterpartyName},#{c.description},#{c.contractAmount},'DRAFT','DRAFT_GENERATED','UNPAID',0,#{c.outstandingAmount},0,#{c.createdBy},#{c.createdAt},#{c.updatedAt})"
     )
     @Options(useGeneratedKeys = true, keyProperty = "c.id")
     int insert(@Param("c") Contract contract);
 
     /** 按版本更新合同登记字段。 */
     @Update(
-        "UPDATE crm_contract SET contract_name=#{c.contractName},external_contract_no=#{c.externalContractNo},business_type=#{c.businessType},our_party_name=#{c.ourPartyName},counterparty_name=#{c.counterpartyName},contract_amount=#{c.contractAmount},signed_at=#{c.signedAt},expire_date=#{c.expireDate},description=#{c.description},outstanding_amount=#{c.contractAmount}-received_amount,version=version+1,updated_at=#{now} WHERE id=#{c.id} AND version=#{c.version} AND contract_status IN ('DRAFT','RETURNED')"
+        "UPDATE crm_contract SET contract_name=#{c.contractName},external_contract_no=#{c.externalContractNo},business_type=#{c.businessType},our_party_name=#{c.ourPartyName},counterparty_name=#{c.counterpartyName},contract_amount=#{c.contractAmount},signed_at=#{c.signedAt},expire_date=#{c.expireDate},description=#{c.description},our_contact_name=#{c.ourContactName},our_contact_phone=#{c.ourContactPhone},counterparty_contact_name=#{c.counterpartyContactName},counterparty_contact_phone=#{c.counterpartyContactPhone},our_address=#{c.ourAddress},counterparty_address=#{c.counterpartyAddress},our_credit_code=#{c.ourCreditCode},counterparty_credit_code=#{c.counterpartyCreditCode},payment_terms=#{c.paymentTerms},delivery_terms=#{c.deliveryTerms},planned_signed_at=#{c.plannedSignedAt},performance_start_date=#{c.performanceStartDate},outstanding_amount=#{c.contractAmount}-received_amount,version=version+1,updated_at=#{now} WHERE id=#{c.id} AND version=#{c.version} AND contract_status IN ('DRAFT','RETURNED')"
     )
     int updateDraft(@Param("c") Contract contract, @Param("now") LocalDateTime now);
+
+    /** 在已获合同锁的事务内记录或撤销登记核对事实，由随后状态流转递增版本。 */
+    @Update(
+        "UPDATE crm_contract SET registration_approved_at=#{at},registration_approved_by=#{reviewer} WHERE id=#{c.id} AND version=#{c.version}"
+    )
+    int registrationApproval(
+        @Param("c") Contract c,
+        @Param("at") LocalDateTime at,
+        @Param("reviewer") Long reviewer
+    );
 
     /** 按版本更新合同内部状态。 */
     @Update(
@@ -112,48 +122,23 @@ public interface ContractMapper {
         @Param("now") LocalDateTime now
     );
 
-    /** 按版本更新签署节点及异常或撤回原因。 */
+    /** 在合同锁内按原进度、内部状态和版本原子推进或暂停，保留恢复节点。 */
     @Update(
-        "UPDATE crm_contract SET signing_progress=#{progress},contract_status=CASE WHEN #{progress}='WITHDRAWN' THEN 'VOID' ELSE contract_status END,version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version} AND contract_status IN ('DRAFT','RETURNED') AND signing_progress=#{expectedProgress}"
+        "UPDATE crm_contract SET signing_progress=#{to},contract_status=#{status},resume_signing_progress=#{resume},version=version+1,updated_at=#{now} WHERE id=#{c.id} AND version=#{c.version} AND signing_progress=#{c.signingProgress} AND contract_status=#{c.contractStatus}"
     )
-    int updateSigningProgress(
-        @Param("id") Long id,
-        @Param("version") Long version,
-        @Param("expectedProgress") String expectedProgress,
-        @Param("progress") String progress,
+    int transition(
+        @Param("c") Contract c,
+        @Param("to") String to,
+        @Param("status") String status,
+        @Param("resume") String resume,
         @Param("now") LocalDateTime now
     );
 
-    /** 将双方签署资料提交内部核验。 */
-    @Update(
-        "UPDATE crm_contract SET contract_status='PENDING_REVIEW',version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version} AND contract_status='DRAFT' AND signing_progress='WAIT_COUNTERPARTY_SIGN'"
+    /** 查询指定环节的最新版本，历史版本不替代被退回的新版本。 */
+    @Select(
+        "SELECT * FROM crm_attachment WHERE biz_type='CONTRACT' AND biz_id=#{id} AND material_type=#{type} ORDER BY version_no DESC LIMIT 1"
     )
-    int submitSignedForReview(
-        @Param("id") Long id,
-        @Param("version") Long version,
-        @Param("now") LocalDateTime now
-    );
-
-    /** 重新提交已退回的合同资料。 */
-    @Update(
-        "UPDATE crm_contract SET contract_status='PENDING_REVIEW',version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version} AND contract_status='RETURNED' AND signing_progress='WAIT_COUNTERPARTY_SIGN'"
-    )
-    int resubmitReturned(
-        @Param("id") Long id,
-        @Param("version") Long version,
-        @Param("now") LocalDateTime now
-    );
-
-    /** 确认已签署资料并更新核验信息。 */
-    @Update(
-        "UPDATE crm_contract SET contract_status='SIGNED',signing_progress='BOTH_SIGNED',signed_at=COALESCE(#{signedAt},signed_at),version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version} AND contract_status='PENDING_REVIEW' AND signing_progress='WAIT_COUNTERPARTY_SIGN'"
-    )
-    int approveSignedForReview(
-        @Param("id") Long id,
-        @Param("version") Long version,
-        @Param("signedAt") java.time.LocalDate signedAt,
-        @Param("now") LocalDateTime now
-    );
+    ContractAttachment latestMaterial(@Param("id") Long id, @Param("type") String type);
 
     /** 新增签署进度历史。 */
     @Insert(
@@ -253,7 +238,7 @@ public interface ContractMapper {
 
     /** 查询业务操作审计历史。 */
     @Select(
-        "SELECT id,action_code actionCode,operator_id operatorId,occurred_at occurredAt,before_json beforeJson,after_json afterJson,reason FROM crm_operation_log WHERE biz_type='CONTRACT' AND biz_id=#{id} ORDER BY id DESC"
+        "SELECT l.id,l.action_code actionCode,l.operator_id operatorId,COALESCE(NULLIF(u.real_name,''),u.username,CASE WHEN l.operator_id IS NULL THEN '系统任务' ELSE '历史账号' END) operatorName,l.occurred_at occurredAt,l.before_json beforeJson,l.after_json afterJson,l.reason FROM crm_operation_log l LEFT JOIN sys_user u ON u.id=l.operator_id WHERE l.biz_type='CONTRACT' AND l.biz_id=#{id} ORDER BY l.id DESC"
     )
     List<java.util.Map<String, Object>> operationHistory(Long id);
 
@@ -269,7 +254,7 @@ public interface ContractMapper {
 
     /** 将已通过合同核验的客户标记为保护中。 */
     @Update(
-        "UPDATE crm_customer c SET customer_status='PROTECTED',version=version+1,updated_at=#{now} WHERE c.id=#{customerId} AND c.deleted=0 AND c.sea_type='PRIVATE'"
+        "UPDATE crm_customer c SET customer_status='PROTECTED',version=version+1,updated_at=#{now} WHERE c.id=#{customerId} AND c.deleted=0 AND c.sea_type='PRIVATE' AND c.customer_status NOT IN ('DEAL','DEAL_PENDING')"
     )
     int protectCustomer(@Param("customerId") Long customerId, @Param("now") LocalDateTime now);
 }

@@ -743,17 +743,23 @@ void initialize();
             type="primary"
             link
             @click="claim(row)"
-          >领取</el-button>
+            >领取</el-button
+          >
           <el-button
             v-if="admin && row.seaType === 'PRIVATE'"
             type="primary"
             link
             @click="openTransfer(row)"
-          >转交</el-button>
+            >转交</el-button
+          >
           <el-button v-if="row.canEdit" type="primary" link @click="edit(row)">编辑</el-button>
-          <el-button v-if="row.canEdit" type="primary" link @click="classify(row)">分类标签</el-button>
+          <el-button v-if="row.canEdit" type="primary" link @click="classify(row)"
+            >分类标签</el-button
+          >
           <el-button v-if="row.canDelete" type="danger" link @click="remove(row)">删除</el-button>
-          <el-tag v-if="!row.canEdit && row.seaType === 'PRIVATE'" size="small" type="info">交接只读</el-tag>
+          <el-tag v-if="!row.canEdit && row.seaType === 'PRIVATE'" size="small" type="info"
+            >交接只读</el-tag
+          >
         </template>
       </el-table-column>
     </DataTable>
@@ -764,7 +770,8 @@ void initialize();
         <div class="detail-title">
           <div>
             <h2>{{ detail.customerName }}</h2>
-            <p>所属负责人：{{ detail.ownerName || '未分配专员' }} · 所属团队：{{
+            <p>
+              所属负责人：{{ detail.ownerName || '未分配专员' }} · 所属团队：{{
                 detail.teamName || '公司公海'
               }}
             </p>
@@ -789,7 +796,9 @@ void initialize();
         <el-tabs v-model="activeTab">
           <el-tab-pane label="档案详情" name="profile">
             <div class="detail-actions">
-              <el-button v-if="detail.canEdit" type="primary" @click="edit(detail)">编辑档案</el-button>
+              <el-button v-if="detail.canEdit" type="primary" @click="edit(detail)"
+                >编辑档案</el-button
+              >
               <el-button v-if="detail.canEdit" @click="classify(detail)">调整分类标签</el-button>
             </div>
             <el-descriptions :column="1" border>
@@ -847,9 +856,45 @@ void initialize();
               </el-descriptions-item>
             </el-descriptions>
           </el-tab-pane>
+          <el-tab-pane v-if="detail.seaType === 'PRIVATE'" label="商机查看" name="opportunities">
+            <p class="scope-note">该客户关联商机，按当前账号权限显示；包含不同阶段及已结束记录。</p>
+            <PagedItems :items="detail.opportunities || []" v-slot="{ rows: pageRows }">
+              <el-table :data="pageRows" empty-text="暂无可查看商机">
+                <el-table-column prop="opportunityName" label="商机" min-width="180" />
+                <el-table-column label="阶段" width="90"
+                  ><template #default="{ row }">{{
+                    {
+                      NEW: '线索',
+                      FOLLOWING: '跟进',
+                      QUOTED: '报价',
+                      DEAL: '成交',
+                      WON: '赢单',
+                      LOST: '输单',
+                      CLOSED: '关闭',
+                    }[row.stageCode] || row.stageCode
+                  }}</template></el-table-column
+                >
+                <el-table-column prop="ownerName" label="负责人" width="110" />
+                <el-table-column prop="teamName" label="团队" width="110" />
+                <el-table-column prop="expectedAmount" label="预计金额（元）" width="130" />
+                <el-table-column label="操作" width="90"
+                  ><template #default="{ row }"
+                    ><el-button
+                      link
+                      type="primary"
+                      @click="router.push({ path: '/opportunities', query: { id: row.id } })"
+                      >查看商机</el-button
+                    ></template
+                  ></el-table-column
+                >
+              </el-table>
+            </PagedItems>
+          </el-tab-pane>
           <el-tab-pane v-if="detail.seaType === 'PRIVATE'" label="联系人" name="contacts">
             <div class="detail-actions">
-              <el-button v-if="detail.canManageContacts" type="primary" @click="editContact()">新增联系人</el-button>
+              <el-button v-if="detail.canManageContacts" type="primary" @click="editContact()"
+                >新增联系人</el-button
+              >
               <p class="muted">主要联系人同时最多一位。更换时自动同步客户主电话。</p>
             </div>
             <PagedItems :items="detail.contacts" v-slot="{ rows: pageRows }">
@@ -874,7 +919,9 @@ void initialize();
                 >
                   <template #default="{ row }">
                     <el-button type="primary" link @click="editContact(row)">编辑</el-button>
-                    <el-button v-if="!row.primary" type="danger" link @click="removeContact(row)">删除</el-button>
+                    <el-button v-if="!row.primary" type="danger" link @click="removeContact(row)"
+                      >删除</el-button
+                    >
                   </template>
                 </el-table-column>
               </el-table>
@@ -887,8 +934,11 @@ void initialize();
                 type="primary"
                 :disabled="!detail.contacts?.length"
                 @click="openFollow"
-              >新增跟进</el-button>
-              <p class="muted">提交后暂时计入有效时间；待查验期间受回收保护，打回后保留记录并重算。</p>
+                >新增跟进</el-button
+              >
+              <p class="muted">
+                提交后暂时计入有效时间；待查验期间受回收保护，打回后保留记录并重算。
+              </p>
             </div>
             <PagedItems
               v-if="detail.followRecords?.length"
@@ -926,9 +976,11 @@ void initialize();
                       }}
                     </el-tag>
                     <p>{{ item.content }}</p>
-                    <p>沟通结果：{{ item.substantiveResult }}；下一步：{{ item.nextAction }}（{{
+                    <p>
+                      沟通结果：{{ item.substantiveResult }}；下一步：{{ item.nextAction }}（{{
                         displayTime(item.nextActionAt)
-                      }}）</p>
+                      }}）
+                    </p>
                     <p v-if="item.reviewReason" class="muted">查验意见：{{ item.reviewReason }}</p>
                     <div
                       v-if="
@@ -943,8 +995,11 @@ void initialize();
                         size="small"
                         type="primary"
                         @click="reviewFollow(item, 'CONFIRMED')"
-                      >确认</el-button>
-                      <el-button size="small" type="danger" @click="reviewFollow(item, 'RETURNED')">打回</el-button>
+                        >确认</el-button
+                      >
+                      <el-button size="small" type="danger" @click="reviewFollow(item, 'RETURNED')"
+                        >打回</el-button
+                      >
                     </div>
                   </div>
                 </el-timeline-item>
@@ -1105,7 +1160,9 @@ void initialize();
         <el-divider content-position="left">主要联系人</el-divider>
         <ContactFields ref="initialContactForm" :model="initialContact" primary-locked />
       </template>
-      <p v-else class="muted">客户主电话通过“联系人”中的主要联系人维护。编辑档案不会刷新有效跟进时间。</p>
+      <p v-else class="muted">
+        客户主电话通过“联系人”中的主要联系人维护。编辑档案不会刷新有效跟进时间。
+      </p>
       <div v-if="reviewRequired && privileged" class="review-box">
         <el-checkbox v-model="reviewConfirmed">我已人工核对，同名客户属于不同主体</el-checkbox>
         <el-input
@@ -1118,11 +1175,9 @@ void initialize();
       </div>
       <template #footer>
         <el-button :disabled="saving" @click="editorOpen = false">取消</el-button>
-        <el-button
-          v-if="conflicted && editorMode === 'edit'"
-          :disabled="saving"
-          @click="reloadEdit"
-        >重新加载（放弃本次输入）</el-button>
+        <el-button v-if="conflicted && editorMode === 'edit'" :disabled="saving" @click="reloadEdit"
+          >重新加载（放弃本次输入）</el-button
+        >
         <el-button type="primary" :loading="saving" @click="saveProfile">保存客户</el-button>
       </template>
     </el-dialog>
@@ -1170,7 +1225,9 @@ void initialize();
       <p class="muted">本操作只调整分类标签，不改变客户归属、状态或跟进计时。</p>
       <template #footer>
         <el-button :disabled="saving" @click="classificationOpen = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveClassification">保存分类标签</el-button>
+        <el-button type="primary" :loading="saving" @click="saveClassification"
+          >保存分类标签</el-button
+        >
       </template>
     </el-dialog>
     <el-dialog

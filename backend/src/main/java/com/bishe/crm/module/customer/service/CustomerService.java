@@ -67,6 +67,7 @@ public class CustomerService {
             detail.setLastEffectiveFollowAt(entity.getLastEffectiveFollowAt());
             detail.setFirstContactDeadlineAt(entity.getFirstContactDeadlineAt());
             detail.setFollowRecords(follows.byCustomer(id));
+            detail.setOpportunities(opportunities.forCustomer(id, DataScope.of(actor)));
         }
         return detail;
     }
@@ -118,6 +119,10 @@ public class CustomerService {
         FollowRecord record = new FollowRecord();
         record.setCustomerId(id);
         record.setOpportunityId(request.opportunityId());
+        if (opportunity != null) {
+            record.setOpportunityStageCode(opportunity.getStageCode());
+            record.setOpportunityStageSeq(opportunity.getStageSeq());
+        }
         record.setContactId(contact.getId());
         record.setFollowUserId(actor.id());
         record.setRecordType("FOLLOW");
@@ -250,6 +255,9 @@ public class CustomerService {
                     );
                 }
             }
+        }
+        if (accepted && follow.getOpportunityId() != null) {
+            opportunityService.advanceFromBusiness(follow.getOpportunityId());
         }
         audit(
             actor,

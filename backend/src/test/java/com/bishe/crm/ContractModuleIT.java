@@ -84,38 +84,10 @@ class ContractModuleIT {
             customer
         );
         opportunity = createOpportunity();
-        java.time.LocalDateTime now = java.time.LocalDateTime.now(
-            java.time.ZoneId.of("Asia/Shanghai")
-        );
-        JsonNode d = ok(call("GET", "/api/opportunities/" + opportunity, sales, null));
-        ok(
-            call(
-                "POST",
-                "/api/opportunities/" + opportunity + "/follow-records",
-                sales,
-                Map.of(
-                    "customerVersion",
-                    d.path("customerVersion").asLong(),
-                    "contactId",
-                    d.path("contacts").get(0).path("id").asLong(),
-                    "followMethod",
-                    "PHONE",
-                    "content",
-                    "已沟通合同需求及签署计划",
-                    "resultCode",
-                    "NEED_CONFIRMED",
-                    "substantiveResult",
-                    "采购范围与签署安排已确认",
-                    "nextAction",
-                    "发送报价",
-                    "nextActionAt",
-                    now.plusDays(1).toString(),
-                    "followedAt",
-                    now.minusSeconds(1).toString()
-                )
-            )
-        );
+        confirmedFollow(); // NEW -> FOLLOWING
+        confirmedFollow(); // FOLLOWING 本轮
         evidence("QUOTE", "正式报价");
+        confirmedFollow(); // QUOTED 本轮
         evidence("CONFIRMATION", "客户确认合作");
         assertThat(
             ok(call("GET", "/api/opportunities/" + opportunity, sales, null))
@@ -214,293 +186,498 @@ class ContractModuleIT {
         if (otherTeam != null) jdbc.update("DELETE FROM sys_team WHERE id=?", otherTeam);
     }
 
-    /** 验证登记、上传和核验开放赢单门槛且保留附件版本。 */
+    /** 验证五步真实流转、两次退回、新版本和成交阶段跟进门槛。 */
     @Test
-    void registrationUploadReviewOpensWonGateAndPreservesVersion() {
-        ResponseEntity<JsonNode> created = call(
-            "POST",
-            "/api/contracts/from-opportunity",
-            sales,
-            Map.of("opportunityId", opportunity)
-        );
-        assertThat(created.getStatusCode())
-            .withFailMessage("%s", created.getBody())
-            .isEqualTo(HttpStatus.OK);
-        contract = created.getBody().path("data").asLong();
-        JsonNode draft = ok(call("GET", "/api/contracts/" + contract, sales, null));
-        assertThat(draft.path("contractStatus").asText()).isEqualTo("DRAFT");
-        MultipartBodyBuilder multipart = new MultipartBodyBuilder();
-        multipart.part("materialType", "SIGNED_CONTRACT");
-        multipart.part("note", "测试签署文件");
-        multipart.part(
-            "file",
-            new ByteArrayResource("signed-contract".getBytes()) {
-                /** 提供上传测试使用的文件名。 */
-                @Override
-                public String getFilename() {
-                    return "contract.pdf";
-                }
-            },
-            MediaType.APPLICATION_PDF
-        );
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token(sales));
-        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-        ResponseEntity<JsonNode> upload = http.exchange(
-            "/api/contracts/" + contract + "/attachments",
-            HttpMethod.POST,
-            new HttpEntity<>(multipart.build(), headers),
-            JsonNode.class
-        );
-        assertThat(upload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        ResponseEntity<JsonNode> withdrawalWithFile = updateProgress(
-            sales,
-            "WITHDRAWN",
-            "已有双方签署文件时不能直接撤回"
-        );
-        assertThat(withdrawalWithFile.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        ResponseEntity<JsonNode> incomplete = call(
-            "POST",
-            "/api/contracts/" + contract + "/submit",
-            sales,
-            Map.of("version", draft.path("version").asLong())
-        );
-        assertThat(incomplete.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(incomplete.getBody().path("code").asInt()).isEqualTo(40017);
-        ok(
-            call(
-                "PUT",
-                "/api/contracts/" + contract,
-                sales,
-                Map.of(
-                    "version",
-                    draft.path("version").asLong(),
-                    "contractName",
-                    "实际软件服务合同",
-                    "externalContractNo",
-                    "HT-TEST-001",
-                    "businessType",
-                    "软件开发",
-                    "ourPartyName",
-                    "我方主体",
-                    "counterpartyName",
-                    "客户主体",
-                    "contractAmount",
-                    1200.50,
-                    "signedAt",
-                    "2026-10-20",
-                    "description",
-                    "以实际签署文件为准"
-                )
-            )
-        );
-        progress(sales, "WAIT_OUR_SIGN", "我方完成内部审批，提交签署");
-        progress(manager, "WAIT_COUNTERPARTY_SIGN", "我方已签，交由对方签署");
-        JsonNode current = ok(call("GET", "/api/contracts/" + contract, sales, null));
-        ok(
-            call(
-                "POST",
-                "/api/contracts/" + contract + "/submit",
-                sales,
-                Map.of("version", current.path("version").asLong())
-            )
-        );
-        JsonNode pending = ok(call("GET", "/api/contracts/" + contract, manager, null));
-        assertThat(pending.path("contractStatus").asText()).isEqualTo("PENDING_REVIEW");
-        assertThat(pending.path("signingProgress").asText()).isEqualTo("WAIT_COUNTERPARTY_SIGN");
-        ok(
-            call(
-                "POST",
-                "/api/contracts/" + contract + "/review",
-                manager,
-                Map.of(
-                    "version",
-                    pending.path("version").asLong(),
-                    "pass",
-                    false,
-                    "opinion",
-                    "请补传清晰的双方盖章页"
-                )
-            )
-        );
-        JsonNode returned = ok(call("GET", "/api/contracts/" + contract, sales, null));
-        assertThat(returned.path("contractStatus").asText()).isEqualTo("RETURNED");
-        assertThat(returned.path("signingProgress").asText()).isEqualTo("WAIT_COUNTERPARTY_SIGN");
-        MultipartBodyBuilder revisedMultipart = new MultipartBodyBuilder();
-        revisedMultipart.part("materialType", "SIGNED_CONTRACT");
-        revisedMultipart.part("note", "补充清晰签署页");
-        revisedMultipart.part(
-            "file",
-            new ByteArrayResource("revised-signed-contract".getBytes()) {
-                /** 提供上传测试使用的文件名。 */
-                @Override
-                public String getFilename() {
-                    return "contract-revised.pdf";
-                }
-            },
-            MediaType.APPLICATION_PDF
-        );
-        HttpHeaders revisedHeaders = new HttpHeaders();
-        revisedHeaders.setBearerAuth(token(sales));
-        revisedHeaders.setContentType(MediaType.MULTIPART_FORM_DATA);
-        ResponseEntity<JsonNode> revisedUpload = http.exchange(
-            "/api/contracts/" + contract + "/attachments",
-            HttpMethod.POST,
-            new HttpEntity<>(revisedMultipart.build(), revisedHeaders),
-            JsonNode.class
-        );
-        assertThat(revisedUpload.getStatusCode()).isEqualTo(HttpStatus.OK);
-        JsonNode resubmitting = ok(call("GET", "/api/contracts/" + contract, sales, null));
-        ok(
-            call(
-                "POST",
-                "/api/contracts/" + contract + "/submit",
-                sales,
-                Map.of("version", resubmitting.path("version").asLong())
-            )
-        );
-        JsonNode resubmitted = ok(call("GET", "/api/contracts/" + contract, manager, null));
-        ok(
-            call(
-                "POST",
-                "/api/contracts/" + contract + "/review",
-                manager,
-                Map.of(
-                    "version",
-                    resubmitted.path("version").asLong(),
-                    "pass",
-                    true,
-                    "opinion",
-                    "补充资料与登记信息已核对"
-                )
-            )
-        );
-        JsonNode reviewed = ok(call("GET", "/api/contracts/" + contract, manager, null));
-        assertThat(reviewed.path("contractStatus").asText()).isEqualTo("SIGNED");
+    void fiveStepsRequireSpecificFilesReviewAndCurrentStageFollow() {
+        createContract();
+        assertStep("DRAFT_GENERATED");
+        assertThat(upload("SIGNED_CONTRACT").getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(
+            updateProgress(admin, "FILE_CONFIRMED", "不能人工跳步").getStatusCode()
+        ).isEqualTo(HttpStatus.BAD_REQUEST);
+        complete();
+        ok(draftSubmit(sales));
+        assertStep("DRAFT_REVIEW");
+        assertThat(review(sales, true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ok(review(manager, false));
+        assertStep("DRAFT_GENERATED");
+        assertThat(submit(sales).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        complete();
+        ok(draftSubmit(sales));
+        ok(review(admin, true));
+        assertStep("SIGNED_UPLOAD");
+        assertThat(submit(sales).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        complete();
+        ok(upload("SIGNED_CONTRACT"));
+        assertStep("SIGNED_UPLOAD"); // 上传本身不能代替负责人确定
+        assertThat(submit(manager).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ok(submit(sales));
+        assertStep("FILE_REVIEW");
+        ok(review(manager, false));
+        assertStep("SIGNED_UPLOAD");
+        assertThat(submit(sales).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST); // 退回版本不可原样重提
+        ok(upload("SIGNED_CONTRACT"));
+        ok(submit(admin));
+        ok(review(manager, true));
+        assertStep("FILE_CONFIRMED");
+        assertThat(cd().path("contractStatus").asText()).isEqualTo("SIGNED");
+        assertThat(
+            ok(call("GET", "/api/opportunities/" + opportunity, sales, null))
+                .path("stageCode")
+                .asText()
+        ).isEqualTo("DEAL");
+        confirmedFollow();
         JsonNode won = ok(call("GET", "/api/opportunities/" + opportunity, sales, null));
         assertThat(won.path("stageCode").asText()).isEqualTo("WON");
-        assertThat(won.path("stageHistory").get(0).path("actionCode").asText()).isEqualTo(
-            "AUTO_CONTRACT_REVIEW"
-        );
-        assertThat(won.path("stageHistory").get(0).path("operatorName").asText()).isEqualTo(
-            "系统自动"
-        );
-        assertThat(won.path("stageProgress").get(3).path("ready").asBoolean()).isTrue();
-        assertThat(reviewed.path("signedAt").asText()).isEqualTo("2026-10-20");
-        assertThat(reviewed.path("signingProgress").asText()).isEqualTo("BOTH_SIGNED");
-        assertThat(reviewed.path("signingHistory").size()).isEqualTo(4);
+        assertThat(cd().path("attachments").size()).isEqualTo(2);
         assertThat(
-            ok(
-                call(
-                    "GET",
-                    "/api/contracts/registration-opportunities?keyword=" + prefix,
-                    sales,
-                    null
-                )
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_attachment WHERE biz_type='CONTRACT' AND biz_id=? AND confirm_status='REJECTED'",
+                Integer.class,
+                contract
             )
-                .path("total")
-                .asInt()
-        ).isZero();
+        ).isEqualTo(1);
+        assertThat(cd().path("operationHistory").get(0).path("operatorName").asText()).contains(
+            prefix
+        );
+        assertThat(cd().path("signingHistory").get(0).path("changedAt").asText()).doesNotContain(
+            "."
+        );
+        // 已确认结果可暂停/恢复，不能撤销已确认事实或新建第二份有效登记。
+        ok(updateProgress(sales, "WITHDRAWN", "暂缓归档"));
+        assertThat(cd().path("contractStatus").asText()).isEqualTo("SIGNED");
+        ok(updateProgress(admin, "NORMAL", "核对原文件后恢复"));
+        assertStep("FILE_CONFIRMED");
         assertThat(
-            ok(call("GET", "/api/contracts?keyword=" + prefix, sales, null))
-                .path("list")
-                .get(0)
-                .path("id")
-                .asLong()
-        ).isEqualTo(contract);
+            jdbc.queryForObject(
+                "SELECT COUNT(*) FROM crm_attachment WHERE biz_type='CONTRACT' AND biz_id=? AND confirm_status='PASSED'",
+                Integer.class,
+                contract
+            )
+        ).isEqualTo(1);
     }
 
-    /** 验证签署顺序、数据范围、管理员纠正及撤回终态。 */
+    /** 在线草稿无需文件，可反复保存、撤回和重提；最新签署文件才被核验。 */
     @Test
-    void signingProgressEnforcesSequenceScopeCorrectionAndWithdrawalTerminal() {
+    void onlineRegistrationSupportsEditWithdrawReturnAndLatestSignedVersion() {
+        createContract();
+        assertThat(draftSubmit(sales).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        complete();
+        assertThat(cd().path("ourContactName").asText()).isEqualTo("我方经办人");
+        assertThat(cd().path("counterpartyContactName").asText()).isEqualTo("客户联系人");
+        assertThat(cd().path("paymentTerms").asText()).contains("分期");
+        assertThat(cd().path("attachments").size()).isZero();
+        long staleVersion = cd().path("version").asLong();
+        complete();
+        assertThat(
+            call(
+                "POST",
+                "/api/contracts/" + contract + "/draft-submit",
+                sales,
+                Map.of("version", staleVersion)
+            ).getStatusCode()
+        ).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(draftSubmit(manager).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ok(draftSubmit(sales));
+        assertStep("DRAFT_REVIEW");
+        assertThat(cd().path("attachments").size()).isZero();
+        assertThat(withdrawDraft(manager).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ok(withdrawDraft(sales));
+        assertStep("DRAFT_GENERATED");
+        assertThat(cd().path("canEdit").asBoolean()).isTrue();
+        complete();
+        ok(draftSubmit(admin));
+        ok(review(manager, false));
+        assertStep("DRAFT_GENERATED");
+        complete();
+        ok(draftSubmit(sales));
+        ok(review(manager, true));
+        assertStep("SIGNED_UPLOAD");
+        assertThat(cd().path("registrationApprovedAt").isNull()).isFalse();
+        // 补实际日期不撤销批准；修改关键登记信息则重新回到草稿核对。
+        Map<String, Object> changed = registrationFields();
+        changed.put("version", cd().path("version").asLong());
+        changed.put("counterpartyContactPhone", "13800000009");
+        ok(call("PUT", "/api/contracts/" + contract, sales, changed));
+        assertStep("DRAFT_GENERATED");
+        assertThat(cd().path("registrationApprovedAt").isNull()).isTrue();
+        ok(draftSubmit(sales));
+        ok(review(manager, true));
+        ok(upload("SIGNED_CONTRACT"));
+        long firstId = cd().path("attachments").get(0).path("id").asLong();
+        ok(upload("SIGNED_CONTRACT"));
+        long secondId = cd().path("attachments").get(0).path("id").asLong();
+        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(cd().path("attachments").size()).isEqualTo(2);
+        // 本地两个历史版本均可通过受保护接口下载；三角色沿用原数据范围。
+        for (Long actor : List.of(sales, manager, admin)) {
+            HttpHeaders downloadHeaders = new HttpHeaders();
+            downloadHeaders.setBearerAuth(token(actor));
+            for (long attachmentId : List.of(firstId, secondId)) {
+                String path = "/api/contracts/" + contract + "/attachments/" + attachmentId + "/download";
+                var downloaded = http.exchange(path, HttpMethod.GET,
+                    new HttpEntity<>(downloadHeaders), byte[].class);
+                assertThat(downloaded.getStatusCode()).isEqualTo(HttpStatus.OK);
+                assertThat(downloaded.getBody()).isEqualTo("%PDF-1.4 test fixture".getBytes());
+                assertThat(downloaded.getHeaders().getCacheControl()).contains("no-store");
+                assertThat(downloaded.getHeaders().getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+            }
+        }
+        String downloadPath = "/api/contracts/" + contract + "/attachments/" + firstId + "/download";
+        assertThat(http.getForEntity(downloadPath, byte[].class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        Long unrelated = user("unrelated", "SPECIALIST", team);
+        extraUsers.add(unrelated);
+        assertThat(call("GET", downloadPath, unrelated, null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        ok(submit(sales));
+        ok(review(manager, true));
+        assertStep("FILE_CONFIRMED");
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT confirm_status FROM crm_attachment WHERE id=?",
+                String.class,
+                secondId
+            )
+        ).isEqualTo("PASSED");
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT confirm_status FROM crm_attachment WHERE id=?",
+                String.class,
+                firstId
+            )
+        ).isEqualTo("PENDING");
+    }
+
+    /** 非法字段给出明确提示且不写库，修正后可用同一版本继续保存。 */
+    @Test
+    void registrationValidationIdentifiesFieldsAndKeepsFailedSaveUnchanged() {
+        createContract();
+        JsonNode before = cd();
+        Map<String, Object> values = registrationFields();
+        values.put("version", before.path("version").asLong());
+        values.put("ourCreditCode", "BAD-CODE");
+        values.put("counterpartyContactPhone", "私人号码");
+        ResponseEntity<JsonNode> rejected = call(
+            "PUT",
+            "/api/contracts/" + contract,
+            sales,
+            values
+        );
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(rejected.getBody().path("code").asInt()).isEqualTo(40001);
+        assertThat(
+            rejected.getBody().path("data").path("fieldErrors").path("ourCreditCode").asText()
+        ).contains("我方统一社会信用代码", "18位");
+        assertThat(
+            rejected
+                .getBody()
+                .path("data")
+                .path("fieldErrors")
+                .path("counterpartyContactPhone")
+                .asText()
+        ).contains("对方联系电话");
+        assertThat(rejected.getBody().toString()).doesNotContain(
+            "BAD-CODE",
+            "私人号码",
+            "rejectedValue"
+        );
+        assertThat(cd().path("version")).isEqualTo(before.path("version"));
+        assertThat(cd().path("contractName")).isEqualTo(before.path("contractName"));
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT our_credit_code FROM crm_contract WHERE id=?",
+                String.class,
+                contract
+            )
+        ).isNull();
+
+        values.put("ourCreditCode", "91310000ABCDEFGH12");
+        values.put("counterpartyContactPhone", "+86 (021) 1234-5678");
+        values.put("signedAt", "");
+        values.put("performanceStartDate", "2026-10-31");
+        values.put("expireDate", "2026-10-31");
+        ok(call("PUT", "/api/contracts/" + contract, sales, values));
+        assertThat(cd().path("signedAt").isNull()).isTrue();
+        assertThat(cd().path("ourCreditCode").asText()).isEqualTo("91310000ABCDEFGH12");
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT counterparty_contact_phone FROM crm_contract WHERE id=?",
+                String.class,
+                contract
+            )
+        ).isEqualTo("+86 (021) 1234-5678");
+
+        values.put("version", cd().path("version").asLong());
+        values.put("description", "修正后再次保存的登记内容");
+        ok(call("PUT", "/api/contracts/" + contract, sales, values));
+        assertThat(cd().path("description").asText()).isEqualTo("修正后再次保存的登记内容");
+        assertStep("DRAFT_GENERATED");
+    }
+
+    /** 提交当前在线登记表，不上传草稿附件。 */
+    ResponseEntity<JsonNode> draftSubmit(Long actor) {
+        return call(
+            "POST",
+            "/api/contracts/" + contract + "/draft-submit",
+            actor,
+            Map.of("version", cd().path("version").asLong())
+        );
+    }
+
+    /** 负责人撤回待审登记供再次编辑。 */
+    ResponseEntity<JsonNode> withdrawDraft(Long actor) {
+        return call(
+            "POST",
+            "/api/contracts/" + contract + "/draft-withdraw",
+            actor,
+            Map.of("version", cd().path("version").asLong(), "reason", "补充联系信息")
+        );
+    }
+
+    /** 验证暂停恢复权限、原节点保存、版本冲突和材料缺失的拒绝。 */
+    @Test
+    void pauseRestoreRechecksFilesAndScopeWithoutBypassingReview() throws Exception {
+        createContract();
+        Long peer = user("peer", "SPECIALIST", team);
+        extraUsers.add(peer);
+        assertThat(updateProgress(peer, "EXCEPTION", "越权").getStatusCode()).isEqualTo(
+            HttpStatus.NOT_FOUND
+        );
+        complete();
+        ok(draftSubmit(sales));
+        long oldVersion = cd().path("version").asLong();
+        ok(updateProgress(sales, "EXCEPTION", "资料待补正"));
+        assertThat(cd().path("resumeSigningProgress").asText()).isEqualTo("DRAFT_REVIEW");
+        assertThat(updateProgress(sales, "NORMAL", "专员不得自行恢复").getStatusCode()).isEqualTo(
+            HttpStatus.FORBIDDEN
+        );
+        assertThat(review(manager, true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(
+            call(
+                "PATCH",
+                "/api/contracts/" + contract + "/signing-progress",
+                manager,
+                Map.of("version", oldVersion, "targetProgress", "NORMAL", "reason", "旧版本")
+            ).getStatusCode()
+        ).isEqualTo(HttpStatus.CONFLICT);
+        assertStep("EXCEPTION");
+        ok(updateProgress(manager, "NORMAL", "恢复在线登记核对，无需草稿文件"));
+        assertStep("DRAFT_REVIEW");
+        ok(review(manager, true));
+        assertStep("SIGNED_UPLOAD");
+        ok(upload("SIGNED_CONTRACT"));
+        ok(submit(sales));
+        ok(updateProgress(sales, "EXCEPTION", "检查签署材料"));
+        String path = jdbc.queryForObject(
+            "SELECT storage_path FROM crm_attachment WHERE biz_type='CONTRACT' AND biz_id=? ORDER BY id DESC LIMIT 1",
+            String.class,
+            contract
+        );
+        Path original = Path.of(path),
+            temp = original.resolveSibling(original.getFileName() + ".testbak");
+        Files.move(original, temp);
+        try {
+            assertThat(
+                updateProgress(manager, "NORMAL", "文件缺失不得恢复待确认").getStatusCode()
+            ).isEqualTo(HttpStatus.BAD_REQUEST);
+        } finally {
+            Files.move(temp, original);
+        }
+        ok(updateProgress(manager, "NORMAL", "原文件恢复"));
+        assertStep("FILE_REVIEW");
+        ok(updateProgress(manager, "WITHDRAWN", "暂停办理"));
+        ok(updateProgress(admin, "NORMAL", "恢复原待核验步骤"));
+        assertStep("FILE_REVIEW");
+        assertThat(
+            call(
+                "POST",
+                "/api/contracts/from-opportunity",
+                sales,
+                Map.of("opportunityId", opportunity)
+            ).getStatusCode()
+        ).isEqualTo(HttpStatus.CONFLICT);
+    }
+
+    /** 经理作为负责人时由管理员审核，不允许审核自己的合同。 */
+    @Test
+    void managerOwnerSubmitsButRequiresAnotherReviewer() {
+        jdbc.update("UPDATE crm_opportunity SET owner_id=? WHERE id=?", manager, opportunity);
+        createContract();
+        complete();
+        ok(draftSubmit(manager));
+        assertThat(review(manager, true).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        ok(review(admin, true));
+        complete();
+        ok(uploadAs(manager, "SIGNED_CONTRACT"));
+        ok(submit(manager));
+        ok(review(admin, true));
+        assertStep("FILE_CONFIRMED");
+    }
+
+    /** 创建登记测试对象。 */
+    void createContract() {
         contract = ok(
             call(
                 "POST",
                 "/api/contracts/from-opportunity",
-                sales,
+                admin,
                 Map.of("opportunityId", opportunity)
             )
         ).asLong();
-        Long peer = user("peer", "SPECIALIST", team);
-        extraUsers.add(peer);
-        jdbc.update(
-            "INSERT INTO sys_team(team_code,team_name) VALUES(?,?)",
-            prefix + "outside",
-            prefix + "outside"
+    }
+
+    /** 读取管理员详情。 */
+    JsonNode cd() {
+        return ok(call("GET", "/api/contracts/" + contract, admin, null));
+    }
+
+    /** 断言持久化步骤与接口一致。 */
+    void assertStep(String step) {
+        assertThat(cd().path("signingProgress").asText()).isEqualTo(step);
+        assertThat(
+            jdbc.queryForObject(
+                "SELECT signing_progress FROM crm_contract WHERE id=?",
+                String.class,
+                contract
+            )
+        ).isEqualTo(step);
+    }
+
+    /** 提供完整的登记字段，日期与实际合同文件独立填写。 */
+    Map<String, Object> registrationFields() {
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("contractName", prefix + "合同");
+        values.put("businessType", "软件服务");
+        values.put("ourPartyName", "我方主体");
+        values.put("counterpartyName", "客户主体");
+        values.put("ourContactName", "我方经办人");
+        values.put("ourContactPhone", "13900000001");
+        values.put("counterpartyContactName", "客户联系人");
+        values.put("counterpartyContactPhone", "13800000001");
+        values.put("contractAmount", 1200.50);
+        values.put("signedAt", "2026-10-20");
+        values.put("description", "软件服务范围及交付内容");
+        values.put("paymentTerms", "按约定分期支付");
+        values.put("deliveryTerms", "分阶段交付并验收");
+        return values;
+    }
+
+    /** 通过真实编辑接口保存登记信息，可重复修改。 */
+    void complete() {
+        Map<String, Object> values = registrationFields();
+        values.put("version", cd().path("version").asLong());
+        ok(call("PUT", "/api/contracts/" + contract, admin, values));
+    }
+
+    /** 由默认负责人上传文件。 */
+    ResponseEntity<JsonNode> upload(String type) {
+        return uploadAs(sales, type);
+    }
+
+    /** 上传真实隔离测试文件并走 HTTP multipart。 */
+    ResponseEntity<JsonNode> uploadAs(Long actor, String type) {
+        MultipartBodyBuilder parts = new MultipartBodyBuilder();
+        parts.part("materialType", type);
+        parts.part(
+            "file",
+            new ByteArrayResource("%PDF-1.4 test fixture".getBytes()) {
+                @Override
+                public String getFilename() {
+                    return "test-contract.pdf";
+                }
+            },
+            MediaType.APPLICATION_PDF
         );
-        otherTeam = jdbc.queryForObject(
-            "SELECT id FROM sys_team WHERE team_code=?",
+        HttpHeaders h = new HttpHeaders();
+        h.setBearerAuth(token(actor));
+        h.setContentType(MediaType.MULTIPART_FORM_DATA);
+        return http.exchange(
+            "/api/contracts/" + contract + "/attachments",
+            HttpMethod.POST,
+            new HttpEntity<>(parts.build(), h),
+            JsonNode.class
+        );
+    }
+
+    /** 提交实际签署文件。 */
+    ResponseEntity<JsonNode> submit(Long actor) {
+        return call(
+            "POST",
+            "/api/contracts/" + contract + "/submit",
+            actor,
+            Map.of("version", cd().path("version").asLong())
+        );
+    }
+
+    /** 审核当前材料。 */
+    ResponseEntity<JsonNode> review(Long actor, boolean pass) {
+        return call(
+            "POST",
+            "/api/contracts/" + contract + "/review",
+            actor,
+            Map.of(
+                "version",
+                cd().path("version").asLong(),
+                "pass",
+                pass,
+                "opinion",
+                pass ? "已查验资料" : "补充清晰签署页"
+            )
+        );
+    }
+
+    /** 当前阶段新增跟进，通过真实查验接口完成推进门槛。 */
+    void confirmedFollow() {
+        JsonNode d = ok(call("GET", "/api/opportunities/" + opportunity, sales, null));
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(
+            java.time.ZoneId.of("Asia/Shanghai")
+        );
+        Long id = ok(
+            call(
+                "POST",
+                "/api/opportunities/" + opportunity + "/follow-records",
+                sales,
+                Map.of(
+                    "customerVersion",
+                    d.path("customerVersion").asLong(),
+                    "contactId",
+                    d.path("contacts").get(0).path("id").asLong(),
+                    "followMethod",
+                    "PHONE",
+                    "content",
+                    "已沟通本阶段需求及后续安排",
+                    "resultCode",
+                    "NEED_CONFIRMED",
+                    "substantiveResult",
+                    "本阶段采购安排已明确",
+                    "nextAction",
+                    "发送方案",
+                    "nextActionAt",
+                    now.plusDays(1).toString(),
+                    "followedAt",
+                    now.minusSeconds(1).toString()
+                )
+            )
+        ).asLong();
+        long cv = jdbc.queryForObject(
+            "SELECT version FROM crm_customer WHERE id=?",
             Long.class,
-            prefix + "outside"
+            customer
         );
-        Long outsideManager = user("outside-manager", "MANAGER", otherTeam);
-        extraUsers.add(outsideManager);
-        assertThat(
-            updateProgress(peer, "WAIT_OUR_SIGN", "非负责人专员无权修改").getStatusCode()
-        ).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(
-            updateProgress(outsideManager, "WAIT_OUR_SIGN", "其他团队经理无权修改").getStatusCode()
-        ).isEqualTo(HttpStatus.NOT_FOUND);
-        ResponseEntity<JsonNode> skip = updateProgress(
-            sales,
-            "WAIT_COUNTERPARTY_SIGN",
-            "跳过我方签署"
-        );
-        assertThat(skip.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-
-        ok(updateProgress(manager, "WAIT_OUR_SIGN", "经理确认进入我方签署"));
-        assertThat(
-            updateProgress(sales, "BOTH_SIGNED", "不能手动标记双方已签署").getStatusCode()
-        ).isEqualTo(HttpStatus.BAD_REQUEST);
-        ok(updateProgress(sales, "EXCEPTION", "签署主体信息待补充"));
-        ResponseEntity<JsonNode> invalidRecovery = updateProgress(
-            manager,
-            "WAIT_OUR_SIGN",
-            "不允许跳过异常恢复节点"
-        );
-        assertThat(invalidRecovery.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        ok(updateProgress(manager, "INTERNAL_HANDLING", "资料已补正，返回内部办理"));
-
-        JsonNode current = ok(call("GET", "/api/contracts/" + contract, admin, null));
         ok(
             call(
                 "PATCH",
-                "/api/contracts/" + contract + "/signing-progress",
-                admin,
+                "/api/customers/" + customer + "/follow-records/" + id + "/review",
+                manager,
                 Map.of(
                     "version",
-                    current.path("version").asLong(),
-                    "targetProgress",
-                    "WAIT_COUNTERPARTY_SIGN",
-                    "reason",
-                    "管理员修正错误阶段"
+                    cv,
+                    "reviewStatus",
+                    "CONFIRMED",
+                    "reviewReason",
+                    "已核对本阶段事实"
                 )
             )
         );
-        JsonNode corrected = ok(call("GET", "/api/contracts/" + contract, admin, null));
-        assertThat(corrected.path("signingHistory").get(0).path("correction").asBoolean()).isTrue();
-
-        ok(updateProgress(admin, "WITHDRAWN", "双方决定终止签署"));
-        JsonNode withdrawn = ok(call("GET", "/api/contracts/" + contract, admin, null));
-        assertThat(withdrawn.path("contractStatus").asText()).isEqualTo("VOID");
-        assertThat(withdrawn.path("signingProgress").asText()).isEqualTo("WITHDRAWN");
-        ResponseEntity<JsonNode> terminal = updateProgress(
-            admin,
-            "INTERNAL_HANDLING",
-            "不得恢复撤回登记"
-        );
-        assertThat(terminal.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-
-        Long replacement = ok(
-            call(
-                "POST",
-                "/api/contracts/from-opportunity",
-                sales,
-                Map.of("opportunityId", opportunity)
-            )
-        ).asLong();
-        extraContracts.add(replacement);
-        assertThat(replacement).isNotEqualTo(contract);
     }
 
     /** 提交签署进度测试请求。 */
@@ -564,7 +741,7 @@ class ContractModuleIT {
             assertThat(row.path("contractId").asLong(0)).isZero();
             assertThat(row.path("ownerName").asText()).isEqualTo(prefix + "sales");
             assertThat(row.path("teamName").asText()).isEqualTo(prefix);
-            assertThat(row.path("canUpload").asBoolean()).isTrue();
+            assertThat(row.path("canUpload").asBoolean()).isEqualTo(!actor.equals(manager));
             JsonNode customerRow = ok(call("GET", "/api/customers/" + customer, actor, null));
             assertThat(customerRow.path("ownerName").asText()).isEqualTo(prefix + "sales");
             assertThat(customerRow.path("teamName").asText()).isEqualTo(prefix);

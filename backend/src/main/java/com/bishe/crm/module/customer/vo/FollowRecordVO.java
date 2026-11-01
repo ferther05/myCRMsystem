@@ -13,6 +13,9 @@ public class FollowRecordVO {
     private Long id;
     private Long customerId;
     private Long opportunityId;
+    // 提交时的阶段及轮次，回退重入也不能复用旧跟进。
+    private String opportunityStageCode;
+    private Long opportunityStageSeq;
     private Long contactId;
     private String contactName;
     private Long followUserId;

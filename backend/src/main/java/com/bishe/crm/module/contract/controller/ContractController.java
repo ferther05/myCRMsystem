@@ -81,7 +81,29 @@ public class ContractController {
         return ApiResponse.success(null);
     }
 
-    /** 上传合同资料并新增附件版本。 */
+    /** 提交在线登记表供经理或管理员核对，不要求草稿文件。 */
+    @PostMapping("/{id}/draft-submit")
+    public ApiResponse<Void> submitDraft(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody ContractRequests.Submit request
+    ) {
+        contracts.submitDraft(actor, id, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 负责人撤回待审登记，回到草稿继续修改。 */
+    @PostMapping("/{id}/draft-withdraw")
+    public ApiResponse<Void> withdrawDraft(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody ContractRequests.WithdrawDraft request
+    ) {
+        contracts.withdrawDraft(actor, id, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 上传实际签署文件或补充资料，保留所有历史版本。 */
     @PostMapping("/{id}/attachments")
     public ApiResponse<Void> upload(
         @AuthenticationPrincipal AuthPrincipal actor,
@@ -105,6 +127,8 @@ public class ContractController {
         String name = resource.getFilename() == null ? "contract-file" : resource.getFilename();
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_OCTET_STREAM)
+            .header(HttpHeaders.CACHE_CONTROL, "private, no-store")
+            .header("X-Content-Type-Options", "nosniff")
             .header(
                 HttpHeaders.CONTENT_DISPOSITION,
                 ContentDisposition.attachment()

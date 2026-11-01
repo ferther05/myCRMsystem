@@ -32,6 +32,7 @@ public class ContractSummaryVO {
     private LocalDate expireDate;
     private String contractStatus;
     private String signingProgress;
+    private String resumeSigningProgress;
     private String paymentStatus;
     private BigDecimal receivedAmount;
     private BigDecimal outstandingAmount;
@@ -39,6 +40,10 @@ public class ContractSummaryVO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private Boolean canEdit;
+    private Boolean canSubmitDraft;
+    private Boolean canWithdrawDraft;
+    private String uploadMaterialType;
+    private String progressInstruction;
     private Boolean canSubmit;
     private Boolean canReview;
     private Boolean canUpdateSigningProgress;

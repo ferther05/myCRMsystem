@@ -23,11 +23,12 @@ http.interceptors.request.use(
 
 export class ApiError extends Error {
   /** 保存接口错误的消息、业务码及 HTTP 状态。 */
-  constructor(message, code, status) {
+  constructor(message, code, status, data) {
     super(message);
     this.name = 'ApiError';
     this.code = code;
     this.status = status;
+    this.data = data;
   }
 }
 
@@ -49,7 +50,7 @@ function rejectResponse(response, config, networkError) {
     else if (code === 40301) handlers.passwordRequired?.();
     else if (status === 403) handlers.forbidden?.();
   }
-  return Promise.reject(new ApiError(message, code, status));
+  return Promise.reject(new ApiError(message, code, status, response?.data?.data));
 }
 
 http.interceptors.response.use(

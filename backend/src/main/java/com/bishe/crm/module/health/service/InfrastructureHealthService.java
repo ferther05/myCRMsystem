@@ -42,7 +42,11 @@ public class InfrastructureHealthService {
             )
         );
         String status = components.values().stream().allMatch("UP"::equals) ? "UP" : "DOWN";
-        return new HealthVO(status, components, OffsetDateTime.now(businessClock));
+        return new HealthVO(
+            status,
+            components,
+            OffsetDateTime.now(businessClock).truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        );
     }
 
     /** 执行单项依赖检查，失败时只返回安全状态。 */

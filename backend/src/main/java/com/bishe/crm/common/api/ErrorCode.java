@@ -60,24 +60,29 @@ public enum ErrorCode {
         "协作人最多3位且合计比例不得超过30%，成员必须为同团队在职专员"
     ),
     CONTRACT_RULE(40013, HttpStatus.BAD_REQUEST, "合同登记状态或关联商机不允许此操作"),
-    CONTRACT_REVIEW_REQUIRED(40014, HttpStatus.BAD_REQUEST, "请先上传签署文件并提交经理核验"),
+    CONTRACT_REVIEW_REQUIRED(
+        40014,
+        HttpStatus.BAD_REQUEST,
+        "请完成登记核对，并检查当前环节最新签署文件及其核验状态"
+    ),
     CONTRACT_FILE_INVALID(40015, HttpStatus.BAD_REQUEST, "合同资料格式或大小不符合要求"),
     OPPORTUNITY_FOLLOW_REQUIRED(
         40016,
         HttpStatus.BAD_REQUEST,
-        "请先为本商机补充有效跟进；未接通、无回应或已打回记录不满足推进条件"
+        "请先补充本商机当前阶段的有效跟进，并由经理或管理员核验通过"
     ),
     CONTRACT_DETAILS_REQUIRED(
         40017,
         HttpStatus.BAD_REQUEST,
-        "请补齐合同编号、双方主体、合同金额和签订日期后再提交或通过核验"
+        "请补齐当前环节要求的合同登记信息后再提交或通过核验"
     ),
     NOT_FOUND(40400, HttpStatus.NOT_FOUND, "请求的资源不存在"),
     METHOD_NOT_ALLOWED(40500, HttpStatus.METHOD_NOT_ALLOWED, "请求方法不支持"),
     CONFLICT(40900, HttpStatus.CONFLICT, "数据已变化或与现有记录冲突，请刷新后重试"),
     UNSUPPORTED_MEDIA_TYPE(41500, HttpStatus.UNSUPPORTED_MEDIA_TYPE, "请求内容类型不支持"),
     INTERNAL_ERROR(50000, HttpStatus.INTERNAL_SERVER_ERROR, "系统暂时无法处理请求"),
-    DEPENDENCY_UNAVAILABLE(50300, HttpStatus.SERVICE_UNAVAILABLE, "基础服务暂不可用");
+    DEPENDENCY_UNAVAILABLE(50300, HttpStatus.SERVICE_UNAVAILABLE, "基础服务暂不可用"),
+    FILE_STORAGE_UNAVAILABLE(50301, HttpStatus.SERVICE_UNAVAILABLE, "合同文件存储暂不可用，请检查存储配置或稍后重试");
 
     private final int code;
     private final HttpStatus status;

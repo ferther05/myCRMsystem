@@ -30,11 +30,27 @@ public class Contract {
     private String ourPartyName;
     private String counterpartyName;
     private String description;
+    private String ourContactName;
+    private String ourContactPhone;
+    private String counterpartyContactName;
+    private String counterpartyContactPhone;
+    private String ourAddress;
+    private String counterpartyAddress;
+    private String ourCreditCode;
+    private String counterpartyCreditCode;
+    private String paymentTerms;
+    private String deliveryTerms;
+    private LocalDate plannedSignedAt;
+    private LocalDate performanceStartDate;
+    private java.time.LocalDateTime registrationApprovedAt;
+    private Long registrationApprovedBy;
+
     private BigDecimal contractAmount;
     private LocalDate signedAt;
     private LocalDate expireDate;
     private String contractStatus;
     private String signingProgress;
+    private String resumeSigningProgress;
     private String paymentStatus;
     private BigDecimal receivedAmount;
     private BigDecimal outstandingAmount;

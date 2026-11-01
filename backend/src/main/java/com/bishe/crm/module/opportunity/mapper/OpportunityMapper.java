@@ -46,6 +46,19 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
         @Param("q") OpportunityQuery query
     );
 
+    /** 查询指定客户下当前用户有权查看的全部商机，供客户详情分页展示。 */
+    @Select(
+        "<script>" +
+            FIELDS +
+            "WHERE o.customer_id=#{customerId} AND c.deleted=0 AND " +
+            SCOPE +
+            " ORDER BY o.id DESC</script>"
+    )
+    List<OpportunitySummaryVO> forCustomer(
+        @Param("customerId") Long customerId,
+        @Param("s") DataScope scope
+    );
+
     /** 查询指定记录的可见摘要。 */
     @Select("<script>" + FIELDS + "WHERE o.id=#{id} AND " + SCOPE + "</script>")
     OpportunitySummaryVO summary(@Param("id") Long id, @Param("s") DataScope scope);
@@ -70,7 +83,7 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
 
     /** 按版本更新商机阶段及阶段时间。 */
     @Update(
-        "UPDATE crm_opportunity SET stage_code=#{toStage},activity_status=#{activity},stage_changed_at=#{now},last_effective_progress_at=#{progressAt},close_pending_at=#{closePendingAt},terminal_at=#{terminalAt},close_reason=#{closeReason},version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version}"
+        "UPDATE crm_opportunity SET stage_code=#{toStage},stage_seq=stage_seq+1,activity_status=#{activity},stage_changed_at=#{now},last_effective_progress_at=#{progressAt},close_pending_at=#{closePendingAt},terminal_at=#{terminalAt},close_reason=#{closeReason},version=version+1,updated_at=#{now} WHERE id=#{id} AND version=#{version}"
     )
     int updateStage(
         @Param("id") Long id,
@@ -168,7 +181,7 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
 
     /** 查询业务操作审计历史。 */
     @Select(
-        "SELECT id,action_code actionCode,operator_id operatorId,occurred_at occurredAt,before_json beforeJson,after_json afterJson,reason FROM crm_operation_log WHERE biz_type='OPPORTUNITY' AND biz_id=#{id} ORDER BY id DESC"
+        "SELECT l.id,l.action_code actionCode,l.operator_id operatorId,COALESCE(NULLIF(u.real_name,''),u.username,CASE WHEN l.operator_id IS NULL THEN '系统任务' ELSE '历史账号' END) operatorName,l.occurred_at occurredAt,l.before_json beforeJson,l.after_json afterJson,l.reason FROM crm_operation_log l LEFT JOIN sys_user u ON u.id=l.operator_id WHERE l.biz_type='OPPORTUNITY' AND l.biz_id=#{id} ORDER BY l.id DESC"
     )
     List<java.util.Map<String, Object>> operationHistory(Long id);
 
@@ -348,7 +361,7 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
 
     /** 统计已核验的双方签署材料。 */
     @Select(
-        "SELECT COUNT(*) FROM crm_attachment a JOIN crm_contract c ON a.biz_type='CONTRACT' AND a.biz_id=c.id WHERE c.opportunity_id=#{id} AND c.contract_status IN ('SIGNED','PERFORMING','SETTLED') AND c.signing_progress='BOTH_SIGNED' AND a.material_type='SIGNED_CONTRACT' AND a.confirm_status='PASSED'"
+        "SELECT COUNT(*) FROM crm_attachment a JOIN crm_contract c ON a.biz_type='CONTRACT' AND a.biz_id=c.id WHERE c.opportunity_id=#{id} AND c.contract_status IN ('SIGNED','PERFORMING','SETTLED') AND c.signing_progress='FILE_CONFIRMED' AND a.material_type='SIGNED_CONTRACT' AND a.confirm_status='PASSED'"
     )
     long verifiedSignedMaterials(Long id);
 

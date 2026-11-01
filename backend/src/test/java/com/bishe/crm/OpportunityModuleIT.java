@@ -171,10 +171,14 @@ class OpportunityModuleIT {
         status(stage(admin, id, "NEW", null), 400);
         status(stage(admin, id, "QUOTED", "无报价"), 400);
         evidence(sales, id, "QUOTE", 200, "发送正式报价方案");
+        assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("FOLLOWING");
+        follow(sales, id, "SOLUTION_DISCUSSED");
         assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("QUOTED");
         assertThat(detail(sales, id).path("graceDays").asInt()).isEqualTo(15);
         status(stage(admin, id, "DEAL", "无客户确认"), 400);
         evidence(sales, id, "CONFIRMATION", 0, "客户电话明确确认合作");
+        assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("QUOTED");
+        follow(sales, id, "NEXT_STEP_AGREED");
         assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("DEAL");
         status(stage(admin, id, "WON", "无签署资料"), 400);
         assertThat(
@@ -185,6 +189,9 @@ class OpportunityModuleIT {
         ).isTrue();
         ok(stage(admin, id, "QUOTED", "重新核对实施范围"));
         assertThat(detail(sales, id).path("stageHistory").size()).isEqualTo(5);
+        status(stage(admin, id, "DEAL", "不得复用报价阶段旧轮次跟进"), 400);
+        follow(sales, id, "NEED_CONFIRMED");
+        assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("DEAL");
         assertThat(detail(sales, id).path("operationHistory").size()).isGreaterThanOrEqualTo(7);
     }
 
@@ -465,7 +472,7 @@ class OpportunityModuleIT {
         long follow = ok(
             call("POST", "/api/opportunities/" + id + "/follow-records", peer, body)
         ).asLong();
-        assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("FOLLOWING");
+        assertThat(detail(sales, id).path("stageCode").asText()).isEqualTo("NEW");
         assertThat(detail(sales, other).path("stageCode").asText()).isEqualTo("NEW");
         assertThat(
             jdbc.queryForObject(
@@ -518,7 +525,8 @@ class OpportunityModuleIT {
         doReturn(now.atZone(ZoneId.of("Asia/Shanghai")).toInstant()).when(businessClock).instant();
         doReturn(List.of(id)).when(opportunities).activityCandidates();
         activity.scanNow(admin);
-        assertThat(detail(sales, id).path("activityStatus").asText()).isEqualTo("STAGNANT");
+        // 跟进未核验，阶段仍为 NEW，按线索 20 天 + 10 天宽限判定。
+        assertThat(detail(sales, id).path("activityStatus").asText()).isEqualTo("CLOSE_PENDING");
     }
 
     /** 验证漏斗数量、金额及角色筛选准确。 */
@@ -607,22 +615,40 @@ class OpportunityModuleIT {
                 any(),
                 any()
             );
-        status(
+        long followId = ok(
             call(
                 "POST",
                 "/api/opportunities/" + fresh + "/follow-records",
                 sales,
                 followBody(sales, fresh, "NEED_CONFIRMED")
+            )
+        ).asLong();
+        JsonNode pending = detail(manager, fresh);
+        status(
+            call(
+                "PATCH",
+                "/api/customers/" + customer + "/follow-records/" + followId + "/review",
+                manager,
+                Map.of(
+                    "version",
+                    pending.path("customerVersion").asLong(),
+                    "reviewStatus",
+                    "CONFIRMED",
+                    "reviewReason",
+                    "触发流转审计故障"
+                )
             ),
             409
         );
-        assertThat(version(fresh)).isEqualTo(before);
         assertThat(detail(manager, fresh).path("stageCode").asText()).isEqualTo("NEW");
         assertThat(detail(manager, fresh).path("stageHistory").size()).isEqualTo(1);
-        assertThat(detail(manager, fresh).path("followRecords").size()).isZero();
+        assertThat(
+            detail(manager, fresh).path("followRecords").get(0).path("reviewStatus").asText()
+        ).isEqualTo("PENDING");
+        assertThat(version(fresh)).isEqualTo(before + 1);
         assertThat(
             jdbc.queryForObject("SELECT version FROM crm_customer WHERE id=?", Long.class, customer)
-        ).isEqualTo(customerBefore);
+        ).isEqualTo(customerBefore + 1);
     }
 
     /** 验证扫描时间边界、升级去重及裁决可重复执行。 */
@@ -764,9 +790,10 @@ class OpportunityModuleIT {
         for (Long actor : List.of(sales, manager, admin)) {
             JsonNode progress = detail(actor, id).path("stageProgress").get(1);
             assertThat(progress.path("current").asBoolean()).isTrue();
-            assertThat(progress.path("requirements").get(0).path("met").asBoolean()).isTrue();
+            assertThat(progress.path("requirements").get(0).path("met").asBoolean()).isFalse();
             assertThat(progress.path("requirements").get(1).path("met").asBoolean()).isFalse();
         }
+        follow(sales, id, "SOLUTION_DISCUSSED");
         evidence(sales, id, "QUOTE", 100, "门槛报价");
         assertThat(
             detail(manager, id)
@@ -898,14 +925,86 @@ class OpportunityModuleIT {
         );
     }
 
-    /** 提交商机跟进测试请求。 */
+    /** 验证待审不推进、确认只推进一阶段及客户详情商机的权限范围。 */
+    @Test
+    void pendingFollowRequiresReviewAndCustomerDetailListsAuthorizedOpportunities() {
+        long first = create(admin, customer, "客户商机一", 100);
+        long second = create(admin, customer, "客户商机二", 200);
+        long followId = ok(
+            call(
+                "POST",
+                "/api/opportunities/" + first + "/follow-records",
+                sales,
+                followBody(sales, first, "NEED_CONFIRMED")
+            )
+        ).asLong();
+        assertThat(detail(sales, first).path("stageCode").asText()).isEqualTo("NEW");
+        JsonNode pending = detail(manager, first);
+        status(
+            call(
+                "PATCH",
+                "/api/customers/" + customer + "/follow-records/" + followId + "/review",
+                sales,
+                Map.of(
+                    "version",
+                    pending.path("customerVersion").asLong(),
+                    "reviewStatus",
+                    "CONFIRMED"
+                )
+            ),
+            403
+        );
+        confirmFollow(first, followId);
+        assertThat(detail(sales, first).path("stageCode").asText()).isEqualTo("FOLLOWING");
+        assertThat(detail(sales, second).path("stageCode").asText()).isEqualTo("NEW");
+        evidence(sales, first, "QUOTE", 200, "报价先保存等待本阶段跟进核验");
+        assertThat(detail(sales, first).path("stageCode").asText()).isEqualTo("FOLLOWING");
+        for (Long actor : List.of(sales, manager, admin)) {
+            JsonNode customerDetail = ok(call("GET", "/api/customers/" + customer, actor, null));
+            assertThat(customerDetail.path("opportunities").size()).isEqualTo(2);
+            assertThat(
+                customerDetail.path("opportunities").get(0).path("customerId").asLong()
+            ).isEqualTo(customer);
+        }
+        status(call("GET", "/api/customers/" + customer, foreign, null), 404);
+        assertThat(
+            detail(manager, first).path("operationHistory").get(0).path("operatorName").asText()
+        ).isNotBlank();
+    }
+
+    /** 提交商机跟进并明确完成查验，仅用于需要已满足门槛的测试准备。 */
     void follow(Long actor, long id, String result) {
-        ok(
+        long followId = ok(
             call(
                 "POST",
                 "/api/opportunities/" + id + "/follow-records",
                 actor,
                 followBody(actor, id, result)
+            )
+        ).asLong();
+        if (!List.of("NO_RESPONSE", "NOT_CONNECTED").contains(result)) confirmFollow(id, followId);
+    }
+
+    /** 按当前客户版本由经理核验指定记录。 */
+    void confirmFollow(long id, long followId) {
+        JsonNode d = detail(manager, id);
+        ok(
+            call(
+                "PATCH",
+                "/api/customers/" +
+                    d.path("customerId").asLong() +
+                    "/follow-records/" +
+                    followId +
+                    "/review",
+                manager,
+                Map.of(
+                    "version",
+                    d.path("customerVersion").asLong(),
+                    "reviewStatus",
+                    "CONFIRMED",
+                    "reviewReason",
+                    "本阶段事实已核对"
+                )
             )
         );
     }

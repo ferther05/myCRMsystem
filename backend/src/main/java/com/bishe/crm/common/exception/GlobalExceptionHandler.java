@@ -4,6 +4,8 @@ package com.bishe.crm.common.exception;
 import com.bishe.crm.common.api.ApiResponse;
 import com.bishe.crm.common.api.ErrorCode;
 import jakarta.validation.ConstraintViolationException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.ConcurrencyFailureException;
 import org.springframework.dao.DataAccessResourceFailureException;
@@ -42,8 +44,33 @@ public class GlobalExceptionHandler {
             HandlerMethodValidationException.class,
         }
     )
-    public ResponseEntity<ApiResponse<Void>> validation(Exception exception) {
-        return error(ErrorCode.VALIDATION_ERROR);
+    public ResponseEntity<ApiResponse<Map<String, Map<String, String>>>> validation(
+        Exception exception
+    ) {
+        if (exception instanceof BindException binding && binding.hasFieldErrors()) {
+            Map<String, String> fields = new LinkedHashMap<>();
+            binding
+                .getFieldErrors()
+                .forEach(field ->
+                    fields.putIfAbsent(
+                        field.getField(),
+                        field.getDefaultMessage() == null
+                            ? "该字段格式不正确"
+                            : field.getDefaultMessage()
+                    )
+                );
+            String message = String.join("；", fields.values().stream().distinct().toList());
+            return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.status()).body(
+                ApiResponse.failure(
+                    ErrorCode.VALIDATION_ERROR,
+                    message,
+                    Map.of("fieldErrors", fields)
+                )
+            );
+        }
+        return ResponseEntity.status(ErrorCode.VALIDATION_ERROR.status()).body(
+            ApiResponse.failure(ErrorCode.VALIDATION_ERROR)
+        );
     }
 
     /** 处理参数解析或类型转换失败。 */
