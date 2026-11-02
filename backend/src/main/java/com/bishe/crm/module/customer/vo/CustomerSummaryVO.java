@@ -34,4 +34,5 @@ public class CustomerSummaryVO {
     private Long version;
     private Boolean canEdit;
     private Boolean canDelete;
+    private RecycleViews.Rule recycle;
 }

@@ -65,13 +65,13 @@ public interface FollowRecordMapper extends BaseMapper<FollowRecord> {
 
     /** 查询客户剩余有效跟进的最新时间。 */
     @Select(
-        "SELECT MAX(followed_at) FROM crm_follow_record WHERE customer_id=#{customerId} AND is_effective=1"
+        "SELECT MAX(f.followed_at) FROM crm_follow_record f JOIN crm_customer c ON c.id=f.customer_id WHERE f.customer_id=#{customerId} AND f.is_effective=1 AND (c.ownership_started_at IS NULL OR f.created_at>=c.ownership_started_at)"
     )
     LocalDateTime latestEffectiveAt(Long customerId);
 
     /** 统计待查验的有效跟进。 */
     @Select(
-        "SELECT COUNT(*) FROM crm_follow_record WHERE customer_id=#{customerId} AND review_status='PENDING' AND is_effective=1"
+        "SELECT COUNT(*) FROM crm_follow_record f JOIN crm_customer c ON c.id=f.customer_id WHERE f.customer_id=#{customerId} AND f.review_status='PENDING' AND f.is_effective=1 AND (c.ownership_started_at IS NULL OR f.created_at>=c.ownership_started_at)"
     )
     long pendingEffective(Long customerId);
 

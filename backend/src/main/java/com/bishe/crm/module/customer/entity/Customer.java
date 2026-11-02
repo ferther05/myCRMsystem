@@ -42,5 +42,13 @@ public class Customer {
     private LocalDateTime warningAt;
     private LocalDateTime firstContactDeadlineAt;
     private LocalDateTime lastEffectiveFollowAt;
+    private LocalDateTime ownershipStartedAt;
+    private String recycleWarningKey;
+    private LocalDateTime recycleWarnedAt;
+    private String recycleExtensionKey;
+    private LocalDateTime recycleExtensionUntil;
+    private LocalDateTime permanentDealAt;
+    private String freezeType;
+    private LocalDateTime freezeUntil;
     private Boolean deleted;
 }

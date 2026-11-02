@@ -37,11 +37,18 @@ public class CustomerService {
     private final com.bishe.crm.module.opportunity.service.OpportunityService opportunityService;
     private final ObjectMapper json;
     private final Clock businessClock;
+    private final CustomerRecycleService recycle;
+    private final HandoverService handovers;
+    private final com.bishe.crm.module.task.service.BusinessReminderService reminders;
 
     /** 按当前用户可见范围分页查询记录。 */
+    @Transactional(readOnly = true)
     public PageResult<CustomerSummaryVO> list(AuthPrincipal actor, CustomerQuery query) {
         var page = customers.list(query.toPage(), DataScope.of(actor), now(), query);
-        page.getRecords().forEach(row -> decorate(actor, row));
+        page.getRecords().forEach(row -> {
+            decorate(actor, row);
+            if ("PRIVATE".equals(row.getSeaType())) row.setRecycle(recycle.rule(customers.active(row.getId()),now()));
+        });
         return PageResult.from(page);
     }
 
@@ -144,6 +151,7 @@ public class CustomerService {
         record.setCreatedAt(now);
         changed(follows.insertFollow(record));
         if (effective) {
+            recycle.resolveWarnings(id);
             changed(
                 customers.applyEffectiveFollow(
                     id,
@@ -183,6 +191,7 @@ public class CustomerService {
                 "新增无效跟进留痕 " + record.getId() + "，不刷新有效跟进计时"
             );
         }
+        reminders.reconcile(id);
         return record.getId();
     }
 
@@ -259,15 +268,17 @@ public class CustomerService {
         if (accepted && follow.getOpportunityId() != null) {
             opportunityService.advanceFromBusiness(follow.getOpportunityId());
         }
-        audit(
+        auditEvent(
             actor,
             customer,
             "FOLLOW_REVIEWED",
-            null,
+            encode(Map.of("reviewStatus",follow.getReviewStatus(),"isEffective",Boolean.TRUE.equals(follow.getIsEffective()))),
+            encode(Map.of("reviewStatus",request.reviewStatus(),"isEffective",accepted)),
             "跟进记录 " +
                 followId +
                 (accepted ? "已查验通过" : "已打回并撤销有效性：" + text(request.reviewReason()))
         );
+        reminders.reconcile(customerId);
     }
 
     /** 锁定客户及账号，校验优先权和额度后完成申领。 */
@@ -349,82 +360,12 @@ public class CustomerService {
     public void transfer(AuthPrincipal actor, Long id, CustomerRequests.OwnershipTransfer request) {
         begin(actor);
         if (!"ADMIN".equals(actor.roleCode())) throw new BizException(ErrorCode.FORBIDDEN);
-        Customer customer = customers.lock(id);
-        if (customer == null || !"PRIVATE".equals(customer.getSeaType())) throw new BizException(
-            ErrorCode.NOT_FOUND
-        );
-        if (customer.getVersion() != request.version()) throw new BizException(ErrorCode.CONFLICT);
-        Long oldOwnerId = customer.getOwnerId();
-        if (oldOwnerId == null || oldOwnerId.equals(request.newOwnerId())) throw new BizException(
-            ErrorCode.VALIDATION_ERROR
-        );
-        Long firstLockId = Math.min(oldOwnerId, request.newOwnerId());
-        Long secondLockId = Math.max(oldOwnerId, request.newOwnerId());
-        var firstLocked = accounts.lockUser(firstLockId);
-        var secondLocked = accounts.lockUser(secondLockId);
-        var oldOwner = oldOwnerId.equals(firstLockId) ? firstLocked : secondLocked;
-        var newOwner = request.newOwnerId().equals(firstLockId) ? firstLocked : secondLocked;
-        if (
-            oldOwner == null ||
-            !AuthUsers.usable(newOwner) ||
-            !"SPECIALIST".equals(newOwner.getRoleCode()) ||
-            !Objects.equals(oldOwner.getTeamId(), newOwner.getTeamId()) ||
-            !Objects.equals(customer.getTeamId(), newOwner.getTeamId())
-        ) {
-            throw new BizException(ErrorCode.ACCOUNT_RULE);
-        }
-        LocalDateTime now = now(),
-            readonlyUntil = now.plusDays(7);
-        String before = encode(
-            Map.of(
-                "ownerId",
-                oldOwnerId,
-                "teamId",
-                customer.getTeamId(),
-                "ownershipSeq",
-                customer.getOwnershipSeq()
-            )
-        );
-        changed(
-            customers.transfer(
-                id,
-                request.version(),
-                newOwner.getId(),
-                newOwner.getTeamId(),
-                actor.id(),
-                now
-            )
-        );
-        accounts.syncHoldCount(oldOwnerId, customers.privateHoldCount(oldOwnerId));
-        accounts.syncHoldCount(newOwner.getId(), customers.privateHoldCount(newOwner.getId()));
-        long nextSeq = customer.getOwnershipSeq() + 1;
-        String after = encode(
-            Map.of(
-                "ownerId",
-                newOwner.getId(),
-                "teamId",
-                newOwner.getTeamId(),
-                "ownershipSeq",
-                nextSeq
-            )
-        );
-        changed(
-            customers.ownershipAudit(
-                id,
-                "OWNER_TRANSFERRED",
-                actor.id(),
-                actor.teamId(),
-                now,
-                nextSeq,
-                oldOwnerId,
-                newOwner.getId(),
-                newOwner.getTeamId(),
-                readonlyUntil,
-                before,
-                after,
-                text(request.reason())
-            )
-        );
+        var c=customers.lock(id);
+        if(c==null||!"PRIVATE".equals(c.getSeaType())||c.getOwnerId()==null)throw new BizException(ErrorCode.NOT_FOUND);
+        if(!Objects.equals(c.getVersion(),request.version()))throw new BizException(ErrorCode.CONFLICT);
+        var selection=new com.bishe.crm.module.customer.dto.HandoverRequests.Selection(c.getOwnerId(),request.newOwnerId(),List.of(id));
+        var preview=handovers.preview(actor,selection);
+        handovers.execute(actor,new com.bishe.crm.module.customer.dto.HandoverRequests.Execute(selection,preview.get("previewToken").toString(),request.reason()));
     }
 
     /** 管理员创建客户，同事务写入初始联系人、计时和审计。 */
@@ -1075,6 +1016,11 @@ public class CustomerService {
         snapshot.put("sourceCode", customer.getSourceCode());
         snapshot.put("industryCode", customer.getIndustryCode());
         snapshot.put("region", customer.getRegion());
+        snapshot.put("companySize",customer.getCompanySize());
+        snapshot.put("ownerId",customer.getOwnerId());
+        snapshot.put("teamId",customer.getTeamId());
+        snapshot.put("customerStatus",customer.getCustomerStatus());
+        snapshot.put("lastEffectiveFollowAt",customer.getLastEffectiveFollowAt());
         String phone = customer.getPrimaryPhone();
         snapshot.put(
             "primaryPhone",

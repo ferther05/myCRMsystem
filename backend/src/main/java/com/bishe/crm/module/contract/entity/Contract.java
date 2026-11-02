@@ -54,6 +54,7 @@ public class Contract {
     private String paymentStatus;
     private BigDecimal receivedAmount;
     private BigDecimal outstandingAmount;
+    private Long currentPlanId;
     private Long version;
     private Long createdBy;
     private LocalDateTime createdAt;

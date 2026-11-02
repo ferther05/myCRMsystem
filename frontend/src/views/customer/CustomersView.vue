@@ -1,6 +1,8 @@
 <!-- 文件作用：客户私海及公海列表、档案、跟进查验和归属操作。 -->
 <script setup>
 import PagedItems from '@/components/PagedItems.vue';
+import CustomerRecyclePanel from './CustomerRecyclePanel.vue';
+import CustomerHandoverDialog from './CustomerHandoverDialog.vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -44,6 +46,7 @@ const sea = computed(
   /* 根据路由区分客户私海和公海。 */ () => (route.path === '/public-pool' ? 'PUBLIC' : 'PRIVATE'),
 );
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
+const handoverOpen=ref(false);
 const privileged = computed(
   /* 判断当前身份是否具备经理或管理员操作权限。 */ () =>
     ['ADMIN', 'MANAGER'].includes(auth.user?.roleCode),
@@ -234,8 +237,9 @@ async function saveFollow() {
   try {
     await api.addFollowRecord(detail.value.id, {
       ...followModel,
-      followedAt: followModel.followedAt.replace('T', ' '),
-      nextActionAt: followModel.nextActionAt.replace('T', ' '),
+      // datetime-local 使用 ISO 本地时间，保留 T 才能由后端 LocalDateTime 正确解析。
+      followedAt: followModel.followedAt,
+      nextActionAt: followModel.nextActionAt,
     });
     followOpen.value = false;
     ElMessage.success(
@@ -574,6 +578,10 @@ watch(
   },
 );
 watch([page, size], load);
+/** 从待办跳转时打开原权限范围内的客户详情。 */
+watch(() => route.query.id, (id) => {
+  if (id && /^\d+$/.test(String(id))) void show({ id: Number(id) });
+}, { immediate: true });
 onBeforeUnmount(
   /* 卸载前清理请求标记或敏感表单数据。 */ () => {
     ++generation;
@@ -584,6 +592,7 @@ void initialize();
 </script>
 <template>
   <div class="customers-page">
+    <CustomerHandoverDialog v-if="admin" v-model="handoverOpen" @done="load" />
     <PageHeading
       :title="sea === 'PUBLIC' ? '客户公海' : '客户管理'"
       :description="
@@ -592,6 +601,7 @@ void initialize();
           : '维护客户档案、联系人及分类标签；专员看本人，经理看团队，管理员看全量。'
       "
     >
+        <el-button v-if="admin && sea==='PRIVATE'" @click="handoverOpen=true">批量交接</el-button>
       <el-button v-if="admin" @click="dictionaryOpen = true">分类选项</el-button>
       <el-button :loading="loading" @click="initialize">刷新</el-button>
       <el-button v-if="admin" type="primary" @click="create">
@@ -730,6 +740,9 @@ void initialize();
           <div class="muted">{{ dictionaries.label('industry', row.industryCode) }}</div>
         </template>
       </el-table-column>
+      <el-table-column v-if="sea === 'PRIVATE'" label="回收期限 / 保护原因" min-width="240">
+        <template #default="{ row }"><div>{{ row.recycle?.deadlineAt?.replace('T', ' ').slice(0, 19) || '—' }}</div><div class="muted">{{ row.recycle?.reason }}</div></template>
+      </el-table-column>
       <el-table-column label="状态" min-width="110">
         <template #default="{ row }">
           {{ customerStatuses[row.customerStatus] || row.customerStatus }}
@@ -855,6 +868,9 @@ void initialize();
                 {{ displayTime(detail.createdAt) }}
               </el-descriptions-item>
             </el-descriptions>
+          </el-tab-pane>
+          <el-tab-pane v-if="detail.seaType === 'PRIVATE' && !detail.readonly" label="预警与延期" name="recycle" lazy>
+            <CustomerRecyclePanel :customer="detail" @changed="refreshDetail" />
           </el-tab-pane>
           <el-tab-pane v-if="detail.seaType === 'PRIVATE'" label="商机查看" name="opportunities">
             <p class="scope-note">该客户关联商机，按当前账号权限显示；包含不同阶段及已结束记录。</p>

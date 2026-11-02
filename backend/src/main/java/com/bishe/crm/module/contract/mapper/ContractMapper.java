@@ -17,10 +17,12 @@ import org.apache.ibatis.annotations.*;
 /** 合同登记、附件、签署历史和相关联动的数据访问。 */
 @Mapper
 public interface ContractMapper {
+
+    /** 首次文件核验通过时冻结业绩归属和金额，后续暂停恢复不能重复计业绩。 */
+    @Update("UPDATE crm_contract SET performance_owner_id=owner_id,performance_team_id=team_id,performance_confirmed_at=#{now},performance_amount=contract_amount,performance_legacy=0 WHERE id=#{id} AND performance_confirmed_at IS NULL")
+    int capturePerformance(@Param("id") Long id,@Param("now") java.time.LocalDateTime now);
     String SCOPE =
-        "<choose><when test=\"s.role == 'ADMIN'\">1=1</when>" +
-        "<when test=\"s.role == 'MANAGER'\">c.team_id=#{s.teamId}</when>" +
-        "<otherwise>c.owner_id=#{s.userId}</otherwise></choose>";
+        "<choose><when test=\"s.role == 'ADMIN'\">1=1</when><otherwise>EXISTS(SELECT 1 FROM crm_customer scope_customer WHERE scope_customer.id=c.customer_id AND scope_customer.deleted=0 AND scope_customer.sea_type='PRIVATE' AND <choose><when test=\"s.role == 'MANAGER'\">scope_customer.team_id=#{s.teamId}</when><otherwise>scope_customer.owner_id=#{s.userId}</otherwise></choose>)</otherwise></choose>";
     String FIELDS =
         "SELECT c.id,c.contract_no,c.external_contract_no,c.customer_id,cu.customer_name,c.opportunity_id,o.opportunity_name," +
         "c.owner_id,u.real_name owner_name,c.team_id,t.team_name,c.contract_name,c.business_type,c.our_party_name,c.counterparty_name," +

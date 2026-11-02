@@ -30,6 +30,30 @@ export const updateSigningProgress = (id, payload) =>
 export const uploadContractAttachment = (id, formData) =>
   http.post(`/contracts/${id}/attachments`, formData);
 
+/** 查询合同回款计划、期次、到账和终止审批状态。 */
+export const getPayments = (id) => http.get(`/contracts/${id}/payments`);
+/** 新建回款计划版本草稿。 */
+export const createPaymentPlan = (id, payload) => http.post(`/contracts/${id}/payment-plans`, payload);
+/** 更新尚未提交的回款计划版本。 */
+export const editPaymentPlan = (id, planId, payload) =>
+  http.put(`/contracts/${id}/payment-plans/${planId}`, payload);
+/** 提交回款计划供经理或管理员审批。 */
+export const submitPaymentPlan = (id, planId, payload) =>
+  http.post(`/contracts/${id}/payment-plans/${planId}/submit`, payload);
+/** 审批或退回回款计划版本。 */
+export const reviewPaymentPlan = (id, planId, payload) =>
+  http.post(`/contracts/${id}/payment-plans/${planId}/review`, payload);
+/** 登记一笔指定期次的实际到账。 */
+export const registerPayment = (id, payload) => http.post(`/contracts/${id}/payment-records`, payload);
+/** 管理员作废误录到账，保留原始记录。 */
+export const voidPayment = (id, receiptId, payload) =>
+  http.post(`/contracts/${id}/payment-records/${receiptId}/void`, payload);
+/** 发起合同终止且无应收申请。 */
+export const requestTermination = (id, payload) => http.post(`/contracts/${id}/termination`, payload);
+/** 审批合同终止且无应收申请。 */
+export const reviewTermination = (id, payload) =>
+  http.post(`/contracts/${id}/termination/review`, payload);
+
 /** 下载受权限保护的指定附件。 */
 export async function downloadContractAttachment(id, attachmentId, fileName) {
   const response = await axios.get(`/api/contracts/${id}/attachments/${attachmentId}/download`, {

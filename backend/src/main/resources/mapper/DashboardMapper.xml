@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 文件作用：看板统计SQL；scope列名仅由本文件固定include属性提供，不接受请求拼接。 -->
+<mapper namespace="com.bishe.crm.module.analytics.mapper.DashboardMapper">
+  <sql id="scope">
+    <choose><when test="s.role == 'ADMIN'">1=1</when><when test="s.role == 'MANAGER'">${team}=#{s.teamId}</when><otherwise>${person}=#{s.userId}</otherwise></choose>
+    <if test="owner != null"> AND ${person}=#{owner}</if>
+  </sql>
+  <sql id="current">c.deleted=0 AND c.sea_type='PRIVATE' AND <include refid="scope"><property name="person" value="c.owner_id"/><property name="team" value="c.team_id"/></include></sql>
+  <sql id="signed">k.performance_confirmed_at &gt;= #{start} AND k.performance_confirmed_at &lt; #{end} AND k.contract_status IN ('SIGNED','PERFORMING','SETTLED','TERMINATED') AND <include refid="scope"><property name="person" value="k.performance_owner_id"/><property name="team" value="k.performance_team_id"/></include></sql>
+  <sql id="receipt">r.voided_at IS NULL AND r.received_at &gt;= #{start} AND r.received_at &lt; #{end} AND <include refid="scope"><property name="person" value="r.performance_owner_id"/><property name="team" value="r.performance_team_id"/></include></sql>
+  <select id="owners" resultType="com.bishe.crm.module.analytics.vo.DashboardViews$Owner">
+    SELECT u.id,COALESCE(NULLIF(u.real_name,''),u.username) name,COALESCE(t.team_name,'未分配团队') team_name FROM sys_user u LEFT JOIN sys_team t ON t.id=u.team_id
+    WHERE <choose><when test="s.role == 'ADMIN'">u.role_code IN ('SPECIALIST','MANAGER') OR EXISTS(SELECT 1 FROM crm_contract k WHERE k.performance_owner_id=u.id)</when><when test="s.role == 'MANAGER'">u.team_id=#{s.teamId} OR EXISTS(SELECT 1 FROM crm_contract k WHERE k.performance_owner_id=u.id AND k.performance_team_id=#{s.teamId}) OR EXISTS(SELECT 1 FROM crm_payment_record r WHERE r.performance_owner_id=u.id AND r.performance_team_id=#{s.teamId})</when><otherwise>u.id=#{s.userId}</otherwise></choose>
+    ORDER BY u.id
+  </select>
+  <select id="metrics" resultType="map">
+    SELECT
+    (SELECT COUNT(*) FROM crm_customer c WHERE <include refid="current"/>) customerCount,
+    (SELECT COUNT(*) FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id WHERE <include refid="current"/> AND o.stage_code NOT IN ('WON','LOST','CLOSED')) openOpportunities,
+    (SELECT COALESCE(SUM(k.performance_amount),0) FROM crm_contract k WHERE <include refid="signed"/>) signedAmount,
+    (SELECT COALESCE(SUM(r.received_amount),0) FROM crm_payment_record r WHERE <include refid="receipt"/>) receivedAmount,
+    (SELECT COALESCE(SUM(k.outstanding_amount),0) FROM crm_contract k JOIN crm_customer c ON c.id=k.customer_id WHERE <include refid="current"/> AND k.contract_status IN ('SIGNED','PERFORMING','SETTLED') ) outstandingAmount,
+    (SELECT COALESCE(SUM(k.contract_amount),0) FROM crm_contract k JOIN crm_customer c ON c.id=k.customer_id WHERE <include refid="current"/> AND k.contract_status IN ('SIGNED','PERFORMING','SETTLED')) currentContractAmount,
+    (SELECT COALESCE(SUM(k.received_amount),0) FROM crm_contract k JOIN crm_customer c ON c.id=k.customer_id WHERE <include refid="current"/> AND k.contract_status IN ('SIGNED','PERFORMING','SETTLED')) currentReceivedAmount,
+    (SELECT COALESCE(SUM(GREATEST(pp.planned_amount-pp.received_amount,0)),0) FROM crm_payment_period pp JOIN crm_payment_plan p ON p.id=pp.plan_id JOIN crm_contract k ON k.id=p.contract_id JOIN crm_customer c ON c.id=k.customer_id WHERE <include refid="current"/> AND k.contract_status IN ('SIGNED','PERFORMING') AND p.is_current=1 AND p.approval_status IN ('ACTIVE','SUSPENDED') AND pp.replaced_by_plan_id IS NULL AND pp.due_date &lt; #{today}) overdueAmount,
+    (SELECT COUNT(*) FROM crm_contract k WHERE <include refid="signed"/> AND k.performance_legacy=1) legacyContracts,
+    (SELECT COUNT(*) FROM crm_payment_record r WHERE <include refid="receipt"/> AND r.performance_legacy=1) legacyReceipts
+  </select>
+  <select id="stages" resultType="map">
+    SELECT o.stage_code code,COUNT(*) count,COALESCE(SUM(o.expected_amount),0) amount FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id
+    WHERE <include refid="current"/> AND o.created_at &gt;= #{start} AND o.created_at &lt; #{end} GROUP BY o.stage_code
+  </select>
+  <select id="trends" resultType="map">
+    SELECT month,SUM(signedAmount) signedAmount,SUM(receivedAmount) receivedAmount FROM (
+      SELECT DATE_FORMAT(k.performance_confirmed_at,'%Y-%m') month,SUM(k.performance_amount) signedAmount,0 receivedAmount FROM crm_contract k WHERE <include refid="signed"/> GROUP BY month
+      UNION ALL SELECT DATE_FORMAT(r.received_at,'%Y-%m') month,0 signedAmount,SUM(r.received_amount) receivedAmount FROM crm_payment_record r WHERE <include refid="receipt"/> GROUP BY month
+    ) t GROUP BY month ORDER BY month
+  </select>
+  <select id="ranking" resultType="map">
+    SELECT e.ownerId,COALESCE(NULLIF(u.real_name,''),u.username,'历史账号') ownerName,COALESCE(t.team_name,'未分配团队') teamName,
+    SUM(e.signedCount) signedCount,SUM(e.signedAmount) signedAmount,SUM(e.receivedAmount) receivedAmount,SUM(e.wonCount) wonCount,MAX(e.teamId) teamId FROM (
+      SELECT k.performance_owner_id ownerId,k.performance_team_id teamId,COUNT(*) signedCount,SUM(k.performance_amount) signedAmount,0 receivedAmount,0 wonCount FROM crm_contract k WHERE <include refid="signed"/> GROUP BY k.performance_owner_id,k.performance_team_id
+      UNION ALL SELECT r.performance_owner_id ownerId,r.performance_team_id teamId,0 signedCount,0 signedAmount,SUM(r.received_amount) receivedAmount,0 wonCount FROM crm_payment_record r WHERE <include refid="receipt"/> GROUP BY r.performance_owner_id,r.performance_team_id
+      UNION ALL SELECT k.performance_owner_id ownerId,k.performance_team_id teamId,0 signedCount,0 signedAmount,0 receivedAmount,COUNT(DISTINCT k.opportunity_id) wonCount FROM crm_contract k
+      WHERE k.performance_confirmed_at IS NOT NULL AND <include refid="scope"><property name="person" value="k.performance_owner_id"/><property name="team" value="k.performance_team_id"/></include>
+      AND (SELECT MIN(l.occurred_at) FROM crm_opportunity_stage_log l WHERE l.opportunity_id=k.opportunity_id AND l.to_stage='WON') &gt;= #{start}
+      AND (SELECT MIN(l.occurred_at) FROM crm_opportunity_stage_log l WHERE l.opportunity_id=k.opportunity_id AND l.to_stage='WON') &lt; #{end}
+      GROUP BY k.performance_owner_id,k.performance_team_id
+    ) e LEFT JOIN sys_user u ON u.id=e.ownerId LEFT JOIN sys_team t ON t.id=e.teamId GROUP BY e.ownerId,e.teamId,u.real_name,u.username,t.team_name ORDER BY signedAmount DESC,receivedAmount DESC,ownerId
+  </select>
+  <select id="conversion" resultType="map">
+    SELECT COUNT(*) cohortCount,COALESCE(SUM(x.dealAt IS NOT NULL),0) dealCount,COALESCE(SUM(x.wonAt IS NOT NULL AND x.dealAt IS NOT NULL),0) wonCount,
+    AVG(CASE WHEN x.wonAt &gt;= x.dealAt THEN TIMESTAMPDIFF(SECOND,x.dealAt,x.wonAt)/86400.0 END) averageSigningDays FROM (
+      SELECT o.id,(SELECT MIN(l.occurred_at) FROM crm_opportunity_stage_log l WHERE l.opportunity_id=o.id AND l.to_stage='DEAL' AND l.occurred_at &lt; #{end}) dealAt,
+      (SELECT MIN(l.occurred_at) FROM crm_opportunity_stage_log l WHERE l.opportunity_id=o.id AND l.to_stage='WON' AND l.occurred_at &lt; #{end}) wonAt
+      FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id WHERE <include refid="current"/> AND o.created_at &gt;= #{start} AND o.created_at &lt; #{end}
+    ) x
+  </select>
+  <select id="actions" resultType="map">
+    SELECT todo_type type,COUNT(*) count FROM crm_todo WHERE recipient_id=#{actor} AND todo_status='PENDING' GROUP BY todo_type ORDER BY todo_type
+  </select>
+</mapper>

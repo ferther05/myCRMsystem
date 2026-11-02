@@ -36,6 +36,11 @@ export const claimCustomer = (id, version) =>
   http.post(`/customers/${id}/claim?version=${version}`);
 /** 提交客户负责人转交。 */
 export const transferCustomer = (id, payload) => http.patch(`/customers/${id}/ownership`, payload);
+/** 管理员读取交接账号、客户并预览及执行完整交接。 */
+export const handoverOwners = () => http.get('/customers/handover/owners');
+export const handoverCandidates = (ownerId) => http.get('/customers/handover/candidates', {params:{ownerId}});
+export const previewHandover = (payload) => http.post('/customers/handover/preview', payload);
+export const executeHandover = (payload) => http.post('/customers/handover', payload);
 /** 查询客户分类字典。 */
 export const listCustomerDictionaries = () => http.get('/customer-dictionaries');
 /** 新增客户分类字典项。 */

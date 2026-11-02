@@ -55,6 +55,26 @@ const detail = ref(null),
   selectedFile = ref(null),
   progressDialog = ref(false);
 const form = reactive({});
+const payments = ref(null);
+const paymentLoading = ref(false);
+const paymentDialog = ref(false);
+const receiptDialog = ref(false);
+const paymentSaving = ref(false);
+const paymentPlanForm = reactive({
+  planId: null,
+  version: 0,
+  changeDescription: '',
+  periods: [{ plannedAmount: 0, dueDate: '', triggerNode: 'OTHER' }],
+});
+const receiptForm = reactive({
+  idempotencyKey: '',
+  periodId: null,
+  amount: null,
+  receivedAt: '',
+  paymentMethod: 'BANK_TRANSFER',
+  remark: '',
+  differenceDescription: '',
+});
 const editorForm = ref(null),
   fieldErrors = ref({});
 const statusLabels = {
@@ -147,6 +167,12 @@ const money = (value) =>
   });
 /** 将日期时间显示为可读文字或缺省提示。 */
 const time = (value) => (value ? String(value).replace('T', ' ').substring(0, 19) : '暂无');
+/** 以项目业务时区生成后端接收的无时区日期时间。 */
+const businessNow = () =>
+  new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(new Date()).replace(' ', 'T');
 let generation = 0;
 
 /** 加载当前页面所需的数据并维护加载和错误状态。 */
@@ -200,12 +226,195 @@ async function openDetail(rowOrId) {
   detailLoading.value = true;
   try {
     detail.value = await api.getContract(typeof rowOrId === 'object' ? rowOrId.id : rowOrId);
+    await loadPayments();
   } catch (error) {
     ElMessage.error(error.message);
     detailOpen.value = false;
   } finally {
     detailLoading.value = false;
   }
+}
+/** 刷新回款详情并显示接口失败状态。 */
+async function loadPayments() {
+  if (!detail.value?.id) return;
+  paymentLoading.value = true;
+  try {
+    payments.value = await api.getPayments(detail.value.id);
+    detail.value = await api.getContract(detail.value.id);
+    await load();
+  } catch (error) {
+    payments.value = null;
+    ElMessage.error(`回款信息加载失败：${error.message}`);
+  } finally {
+    paymentLoading.value = false;
+  }
+}
+/** 准备首版计划或基于已收余额的计划换版草稿。 */
+function openPaymentPlan() {
+  const received = Number(payments.value?.receivedAmount || 0);
+  paymentPlanForm.planId = null;
+  paymentPlanForm.version = 0;
+  paymentPlanForm.changeDescription = '';
+  paymentPlanForm.periods = [
+    {
+      plannedAmount: Number((Number(detail.value.contractAmount) - received).toFixed(2)),
+      dueDate: '',
+      triggerNode: 'OTHER',
+    },
+  ];
+  paymentDialog.value = true;
+}
+/** 将未提交计划回填到计划编辑表单。 */
+function editPaymentPlan(plan) {
+  paymentPlanForm.planId = plan.id;
+  paymentPlanForm.version = plan.version;
+  paymentPlanForm.changeDescription = plan.changeDescription || '';
+  paymentPlanForm.periods = plan.periods.map((period) => ({
+    plannedAmount: Number(period.plannedAmount), dueDate: period.dueDate, triggerNode: period.triggerNode,
+  }));
+  paymentDialog.value = true;
+}
+/** 添加一期回款安排。 */
+function addPaymentPeriod() {
+  if (paymentPlanForm.periods.length >= 24) return ElMessage.warning('每版计划最多24期');
+  paymentPlanForm.periods.push({ plannedAmount: 0, dueDate: '', triggerNode: 'OTHER' });
+}
+/** 提交计划草稿，金额总和由后端按合同余额复核。 */
+async function savePaymentPlan() {
+  if (paymentSaving.value) return;
+  const total = paymentPlanForm.periods.reduce((sum, item) => sum + Number(item.plannedAmount || 0), 0);
+  const outstanding = Number(payments.value?.outstandingAmount ?? detail.value.contractAmount);
+  if (Math.abs(total - outstanding) > 0.001 || paymentPlanForm.periods.some((item) => !item.dueDate || Number(item.plannedAmount) <= 0)) {
+    ElMessage.warning(`各期金额合计需等于未收余额 ¥${money(outstanding)}，并填写每期到期日`);
+    return;
+  }
+  if (payments.value?.plans?.some((item) => item.current) && !paymentPlanForm.changeDescription.trim()) {
+    ElMessage.warning('计划换版必须填写差异说明');
+    return;
+  }
+  paymentSaving.value = true;
+  try {
+    const payload = {
+      version: paymentPlanForm.version,
+      changeDescription: paymentPlanForm.changeDescription.trim() || null,
+      periods: paymentPlanForm.periods.map((item) => ({ ...item, plannedAmount: Number(item.plannedAmount) })),
+    };
+    if (paymentPlanForm.planId) await api.editPaymentPlan(detail.value.id, paymentPlanForm.planId, payload);
+    else await api.createPaymentPlan(detail.value.id, payload);
+    paymentDialog.value = false;
+    ElMessage.success('回款计划草稿已保存');
+    await loadPayments();
+  } catch (error) {
+    ElMessage.error(error.message);
+  } finally {
+    paymentSaving.value = false;
+  }
+}
+/** 提交指定版本的回款计划审批。 */
+async function submitPaymentPlan(plan) {
+  try {
+    await ElMessageBox.confirm(`提交第 ${plan.versionNo} 版回款计划供经理或管理员审批？`, '提交回款计划');
+    await api.submitPaymentPlan(detail.value.id, plan.id, { version: plan.version });
+    ElMessage.success('回款计划已提交审批');
+    await loadPayments();
+  } catch (error) {
+    if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message);
+  }
+}
+/** 审批计划版本并要求填写意见。 */
+async function reviewPaymentPlan(plan, pass) {
+  const result = await ElMessageBox.prompt(pass ? '填写审批意见' : '填写退回原因', pass ? '通过回款计划' : '退回回款计划', {
+    inputValue: pass ? '金额与期次安排已核对' : '',
+    inputValidator: (value) => value?.trim() ? true : '请填写意见',
+  }).catch(() => null);
+  if (!result) return;
+  try {
+    await api.reviewPaymentPlan(detail.value.id, plan.id, { version: plan.version, pass, opinion: result.value.trim() });
+    ElMessage.success(pass ? '回款计划已批准' : '回款计划已退回');
+    await loadPayments();
+  } catch (error) { ElMessage.error(error.message); }
+}
+/** 打开实际到账登记表单并生成本次请求的幂等标识。 */
+async function openReceipt(period) {
+  receiptForm.idempotencyKey = crypto.randomUUID();
+  receiptForm.periodId = period.id;
+  receiptForm.amount = Number(period.outstandingAmount);
+  receiptForm.receivedAt = businessNow();
+  receiptForm.paymentMethod = 'BANK_TRANSFER';
+  receiptForm.remark = '';
+  receiptForm.differenceDescription = '';
+  receiptDialog.value = true;
+}
+/** 提交实际到账，部分到账时强制填写差额说明。 */
+async function saveReceipt() {
+  if (paymentSaving.value) return;
+  if (!receiptForm.amount || Number(receiptForm.amount) <= 0) return ElMessage.warning('请输入到账金额');
+  const period = payments.value?.plans.flatMap((plan) => plan.periods).find((item) => item.id === receiptForm.periodId);
+  if (!period) return ElMessage.error('期次信息已变化，请刷新后重试');
+  if (!receiptForm.receivedAt) return ElMessage.warning('请选择实际到账时间');
+  if (Number(receiptForm.amount) > Number(period.outstandingAmount)) return ElMessage.warning('到账金额不能超过本期剩余金额');
+  if (Number(receiptForm.amount) < Number(period.outstandingAmount) && !receiptForm.differenceDescription.trim()) {
+    return ElMessage.warning('部分到账时请填写剩余款项差异说明');
+  }
+  paymentSaving.value = true;
+  try {
+    await api.registerPayment(detail.value.id, {
+      ...receiptForm,
+      amount: Number(receiptForm.amount),
+      receivedAt: receiptForm.receivedAt,
+      idempotencyKey: receiptForm.idempotencyKey,
+    });
+    receiptDialog.value = false;
+    ElMessage.success('到账记录已登记');
+    await loadPayments();
+  } catch (error) { ElMessage.error(error.message); }
+  finally { paymentSaving.value = false; }
+}
+/** 管理员作废误录时保留原因和原始记录。 */
+async function voidReceipt(receipt) {
+  const result = await ElMessageBox.prompt('误录原因将保留在历史记录中。', '作废到账记录', {
+    inputType: 'textarea',
+    inputValidator: (value) => value?.trim() ? true : '请填写作废原因',
+  }).catch(() => null);
+  if (!result) return;
+  try {
+    await api.voidPayment(detail.value.id, receipt.id, { reason: result.value.trim(), version: receipt.version });
+    ElMessage.success('到账记录已作废并重新计算余额');
+    await loadPayments();
+  } catch (error) { ElMessage.error(error.message); }
+}
+/** 发起合同终止且无应收的审批申请。 */
+async function requestTermination() {
+  const result = await ElMessageBox.prompt('请填写合同终止原因。', '申请终止且无应收', {
+    inputType: 'textarea',
+    inputValidator: (value) => value?.trim() ? true : '请填写说明',
+  }).catch(() => null);
+  if (!result) return;
+  const evidence = await ElMessageBox.prompt('请说明为何不存在应收款，供经理或管理员核验。', '无应收依据', {
+    inputType: 'textarea',
+    inputValidator: (value) => value?.trim() ? true : '请填写无应收依据',
+  }).catch(() => null);
+  if (!evidence) return;
+  try {
+    await api.requestTermination(detail.value.id, { reason: result.value.trim(), noReceivableExplanation: evidence.value.trim() });
+    ElMessage.success('终止申请已提交审批');
+    await loadPayments();
+  } catch (error) { ElMessage.error(error.message); }
+}
+/** 审批终止且无应收申请。 */
+async function reviewTermination(pass) {
+  const request = payments.value?.termination;
+  const result = await ElMessageBox.prompt(pass ? '填写审批意见' : '填写退回原因', '终止申请审批', {
+    inputValue: pass ? '已核实无应收' : '',
+    inputValidator: (value) => value?.trim() ? true : '请填写审批意见',
+  }).catch(() => null);
+  if (!result || !request) return;
+  try {
+    await api.reviewTermination(detail.value.id, { version: request.version, pass, opinion: result.value.trim() });
+    ElMessage.success(pass ? '合同已终止' : '终止申请已退回');
+    await loadPayments();
+    await openDetail(detail.value.id);
+  } catch (error) { ElMessage.error(error.message); }
 }
 /** 为当前成交商机打开合同登记或资料上传入口。 */
 async function uploadFromArchive(row) {
@@ -262,6 +471,7 @@ async function registrationAction(row, mode) {
     detail.value = current;
     detailOpen.value = true;
     detailLoading.value = false;
+    await loadPayments();
     if (current.canEdit) {
       if (mode === 'upload' && current.signingProgress !== 'DRAFT_GENERATED') openUpload();
       else openEdit();
@@ -736,6 +946,65 @@ onMounted(
             {{ detail.description || '尚未填写' }}
           </el-descriptions-item>
         </el-descriptions>
+        <el-divider content-position="left">合同回款与结清</el-divider>
+        <div v-loading="paymentLoading" class="payment-panel">
+          <template v-if="payments">
+            <div class="payment-summary">
+              <div><span>合同金额</span><strong>¥ {{ money(payments.contractAmount) }}</strong></div>
+              <div><span>累计到账</span><strong>¥ {{ money(payments.receivedAmount) }}</strong></div>
+              <div><span>未收余额</span><strong>¥ {{ money(payments.outstandingAmount) }}</strong></div>
+              <div><span>回款状态</span><el-tag :type="payments.paymentStatus === 'OVERDUE' ? 'danger' : payments.paymentStatus === 'SETTLED' ? 'success' : 'info'">{{ { UNPAID: '待回款', PARTIAL: '部分到账', OVERDUE: '存在逾期', RECEIVED: '款项已收齐，待签署确认', SETTLED: '已结清', TERMINATED: '终止无应收' }[payments.paymentStatus] || payments.paymentStatus }}</el-tag></div>
+            </div>
+            <div class="actions payment-actions">
+              <el-button v-if="payments.canManagePlan" type="primary" @click="openPaymentPlan">新建回款计划／换版</el-button>
+              <el-button v-if="payments.canRequestTermination" @click="requestTermination">申请终止且无应收</el-button>
+            </div>
+            <el-alert v-if="payments.termination?.status === 'PENDING'" type="warning" :closable="false" title="存在待审批的终止且无应收申请。" />
+            <p v-if="payments.termination" class="scope-note">终止申请：{{ { PENDING: '待审核', APPROVED: '已批准', REJECTED: '已退回' }[payments.termination.status] || payments.termination.status }}；原因：{{ payments.termination.reason }}；无应收依据：{{ payments.termination.noReceivableExplanation }}；审核意见：{{ payments.termination.opinion || '待审核' }}</p>
+            <div v-if="payments.canReviewTermination && payments.termination?.status === 'PENDING'" class="actions">
+              <el-button type="success" @click="reviewTermination(true)">批准终止</el-button>
+              <el-button type="warning" @click="reviewTermination(false)">退回申请</el-button>
+            </div>
+            <el-empty v-if="!payments.plans?.length" description="尚未建立回款计划" />
+            <section v-for="plan in payments.plans" :key="plan.id" class="payment-plan">
+              <div class="payment-plan-head">
+                <strong>第 {{ plan.versionNo }} 版计划</strong>
+                <el-tag :type="plan.approvalStatus === 'SUSPENDED' ? 'warning' : plan.current ? 'success' : 'info'">{{ plan.current ? '当前版本' : ['DRAFT', 'PENDING', 'RETURNED'].includes(plan.approvalStatus) ? '候选版本' : '历史版本' }} · {{ { DRAFT: '草稿', PENDING: '待审批', APPROVED: '已批准', ACTIVE: '生效中', RETURNED: '已退回', CHANGED: '已换版', SUSPENDED: '已暂停，需重新编制并审批', TERMINATED: '合同已终止' }[plan.approvalStatus] || plan.approvalStatus }}</el-tag>
+                <span>计划总额 ¥ {{ money(plan.totalPlannedAmount) }}</span>
+              </div>
+              <p v-if="plan.changeDescription" class="scope-note">版本说明：{{ plan.changeDescription }}</p>
+              <p v-if="plan.submittedAt" class="scope-note">提交：{{ plan.submitterName }} · {{ time(plan.submittedAt) }}<span v-if="plan.approvedAt">；审核：{{ plan.approverName }} · {{ time(plan.approvedAt) }}</span></p>
+              <div class="actions" v-if="plan.approvalStatus === 'DRAFT' || plan.approvalStatus === 'RETURNED'">
+                <el-button v-if="payments.canManagePlan" size="small" @click="editPaymentPlan(plan)">编辑草稿</el-button>
+                <el-button v-if="payments.canManagePlan" size="small" type="primary" @click="submitPaymentPlan(plan)">提交审批</el-button>
+              </div>
+              <div class="actions" v-if="plan.approvalStatus === 'PENDING' && payments.canReviewPlan">
+                <el-button size="small" type="success" @click="reviewPaymentPlan(plan, true)">批准计划</el-button>
+                <el-button size="small" type="warning" @click="reviewPaymentPlan(plan, false)">退回计划</el-button>
+              </div>
+              <el-table :data="plan.periods" size="small" empty-text="无期次">
+                <el-table-column prop="periodNo" label="期次" width="65" />
+                <el-table-column label="应收金额" min-width="115"><template #default="{ row }">¥ {{ money(row.plannedAmount) }}</template></el-table-column>
+                <el-table-column label="已到账" min-width="115"><template #default="{ row }">¥ {{ money(row.receivedAmount) }}</template></el-table-column>
+                <el-table-column label="本期历史余额" min-width="150"><template #default="{ row }">¥ {{ money(row.outstandingAmount) }}<div v-if="row.replacedByPlanId" class="scope-note">已由新版承接，不重复应收</div></template></el-table-column>
+                <el-table-column prop="dueDate" label="到期日" min-width="110" />
+                <el-table-column label="状态" width="105"><template #default="{ row }">{{ { UNPAID: '未到账', PARTIAL: '部分到账', PAID: '已到账', OVERDUE: '已逾期' }[row.periodStatus] || row.periodStatus }}</template></el-table-column>
+                <el-table-column label="操作" width="105"><template #default="{ row }"><el-button v-if="plan.current && plan.approvalStatus === 'ACTIVE' && payments.canRegisterReceipt && row.outstandingAmount > 0" link type="primary" @click="openReceipt(row)">登记到账</el-button></template></el-table-column>
+              </el-table>
+            </section>
+            <el-divider content-position="left">到账记录</el-divider>
+            <el-table :data="payments.receipts" size="small" empty-text="暂无到账记录">
+              <el-table-column type="expand"><template #default="{ row }"><el-descriptions :column="1" border><el-descriptions-item label="计划 / 期次">{{ payments.plans.map(plan => { const period = plan.periods.find(item => item.id === row.periodId); return period ? `第${plan.versionNo}版 / 第${period.periodNo}期` : ''; }).filter(Boolean).join('') }}</el-descriptions-item><el-descriptions-item label="到账方式">{{ { BANK_TRANSFER: '银行转账', CASH: '现金', ONLINE: '线上支付', OTHER: '其他' }[row.paymentMethod] || '未填写' }}</el-descriptions-item><el-descriptions-item label="差异说明">{{ row.differenceDescription || '无' }}</el-descriptions-item><el-descriptions-item label="备注">{{ row.remark || '无' }}</el-descriptions-item><el-descriptions-item v-if="row.voided" label="作废人 / 时间">{{ row.voidedByName }} · {{ time(row.voidedAt) }}</el-descriptions-item></el-descriptions></template></el-table-column>
+              <el-table-column label="到账金额" width="130"><template #default="{ row }">¥ {{ money(row.amount) }}</template></el-table-column>
+              <el-table-column prop="receivedAt" label="到账时间" min-width="170" />
+              <el-table-column prop="registeredByName" label="登记人" width="110" />
+              <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.voided ? 'danger' : 'success'">{{ row.voided ? '已作废' : '有效' }}</el-tag></template></el-table-column>
+              <el-table-column prop="voidReason" label="作废原因" min-width="140" />
+              <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="payments.canVoidReceipt && !row.voided" link type="danger" @click="voidReceipt(row)">作废误录</el-button></template></el-table-column>
+            </el-table>
+          </template>
+          <el-empty v-else description="回款数据暂不可用" />
+        </div>
         <el-divider content-position="left">实际签署文件及历史版本</el-divider>
         <p class="scope-note">
           允许上传多个签署文件版本；核验最新一版，所有历史文件保留可查。合同登记表不要求草稿文件。
@@ -822,6 +1091,33 @@ onMounted(
         <el-empty v-if="!detail.operationHistory?.length" description="暂无操作记录" />
       </template>
     </el-drawer>
+    <el-dialog v-model="paymentDialog" title="新建回款计划版本" width="min(760px, 94%)">
+      <el-form label-position="top">
+        <el-form-item v-if="payments?.plans?.some((item) => item.current)" label="换版差异说明" required>
+          <el-input v-model="paymentPlanForm.changeDescription" type="textarea" :rows="2" maxlength="1000" show-word-limit />
+        </el-form-item>
+        <el-table :data="paymentPlanForm.periods" size="small">
+          <el-table-column label="期次" width="70"><template #default="{ $index }">{{ $index + 1 }}</template></el-table-column>
+          <el-table-column label="金额（元）" min-width="150"><template #default="{ row }"><el-input-number v-model="row.plannedAmount" :min="0" :precision="2" :step="100" controls-position="right" /></template></el-table-column>
+          <el-table-column label="到期日" min-width="170"><template #default="{ row }"><el-date-picker v-model="row.dueDate" type="date" value-format="YYYY-MM-DD" placeholder="选择到期日" /></template></el-table-column>
+          <el-table-column label="触发节点" min-width="140"><template #default="{ row }"><el-select v-model="row.triggerNode"><el-option label="签约" value="SIGNING" /><el-option label="交付" value="DELIVERY" /><el-option label="验收" value="ACCEPTANCE" /><el-option label="质保期" value="WARRANTY" /><el-option label="其他" value="OTHER" /></el-select></template></el-table-column>
+          <el-table-column label="移除" width="70"><template #default="{ $index }"><el-button link type="danger" :disabled="paymentPlanForm.periods.length <= 1" @click="paymentPlanForm.periods.splice($index, 1)">移除</el-button></template></el-table-column>
+        </el-table>
+        <p class="scope-note">计划总额必须等于合同未收余额：¥ {{ money(payments?.outstandingAmount ?? detail?.contractAmount) }}</p>
+        <el-button @click="addPaymentPeriod">添加一期</el-button>
+      </el-form>
+      <template #footer><el-button @click="paymentDialog = false">取消</el-button><el-button type="primary" :loading="paymentSaving" @click="savePaymentPlan">保存计划草稿</el-button></template>
+    </el-dialog>
+    <el-dialog v-model="receiptDialog" title="登记实际到账" width="min(560px, 94%)">
+      <el-form label-position="top">
+        <el-form-item label="到账金额（元）" required><el-input-number v-model="receiptForm.amount" :min="0.01" :max="payments?.outstandingAmount" :precision="2" :step="100" controls-position="right" /></el-form-item>
+        <el-form-item label="实际到账时间" required><el-date-picker v-model="receiptForm.receivedAt" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" placeholder="选择北京时间" /></el-form-item>
+        <el-form-item label="到账方式"><el-select v-model="receiptForm.paymentMethod"><el-option label="银行转账" value="BANK_TRANSFER" /><el-option label="现金" value="CASH" /><el-option label="线上支付" value="ONLINE" /><el-option label="其他" value="OTHER" /></el-select></el-form-item>
+        <el-form-item label="差异说明（未收完时必填）"><el-input v-model="receiptForm.differenceDescription" type="textarea" :rows="2" maxlength="500" /></el-form-item>
+        <el-form-item label="备注"><el-input v-model="receiptForm.remark" maxlength="500" /></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="receiptDialog = false">取消</el-button><el-button type="primary" :loading="paymentSaving" @click="saveReceipt">登记到账</el-button></template>
+    </el-dialog>
     <el-dialog
       v-model="dialogOpen"
       :title="dialog === 'edit' ? '编辑合同登记' : '上传合同'"
@@ -1223,6 +1519,48 @@ onMounted(
 .actions .el-button {
   margin: 0;
 }
+.payment-panel {
+  min-height: 120px;
+}
+.payment-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--crm-border);
+}
+.payment-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.payment-summary span {
+  color: var(--crm-text-secondary);
+  font-size: 12px;
+}
+.payment-summary strong {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.payment-plan {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--crm-border);
+}
+.payment-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.payment-plan-head > span {
+  margin-left: auto;
+  color: var(--crm-text-secondary);
+  font-size: 13px;
+}
+.payment-actions {
+  margin: 12px 0;
+}
 .el-input-number,
 .el-date-editor,
 .el-select {
@@ -1267,6 +1605,13 @@ onMounted(
   }
   .signing-steps {
     overflow-x: auto;
+  }
+  .payment-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .payment-plan-head > span {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>

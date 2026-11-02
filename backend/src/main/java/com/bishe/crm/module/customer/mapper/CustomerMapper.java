@@ -35,7 +35,7 @@ public interface CustomerMapper extends BaseMapper<Customer> {
 
     /** 带公海状态和版本条件原子更新客户归属。 */
     @Update(
-        "UPDATE crm_customer SET owner_id=#{owner},team_id=#{team},sea_type='PRIVATE',customer_status='NEW',warning_at=#{warningAt},first_contact_deadline_at=#{deadlineAt},previous_owner_id=NULL,return_priority_until=NULL,claim_quarter=#{quarter},ownership_seq=ownership_seq+1,version=version+1,updated_by=#{actor},updated_at=#{now} WHERE id=#{id} AND version=#{version} AND deleted=0 AND sea_type='PUBLIC' AND owner_id IS NULL"
+        "UPDATE crm_customer SET owner_id=#{owner},team_id=#{team},sea_type='PRIVATE',customer_status='NEW',ownership_started_at=#{now},last_effective_follow_at=NULL,recycle_warning_key=NULL,recycle_warned_at=NULL,recycle_extension_key=NULL,recycle_extension_until=NULL,warning_at=#{warningAt},first_contact_deadline_at=#{deadlineAt},previous_owner_id=NULL,return_priority_until=NULL,claim_quarter=#{quarter},ownership_seq=ownership_seq+1,version=version+1,updated_by=#{actor},updated_at=#{now} WHERE id=#{id} AND version=#{version} AND deleted=0 AND sea_type='PUBLIC' AND owner_id IS NULL"
     )
     int claim(
         @Param("id") Long id,

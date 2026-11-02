@@ -10,22 +10,34 @@ import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /** 使用隔离临时目录，不读写用户已有合同文件。 */
 class ContractFileStorageTest {
-    @TempDir
     Path root;
     ContractFileStorage storage;
 
-    /** 将存储根目录限定在本次测试的临时空间。 */
+    /** 在 Maven 构建目录下创建独立测试空间，避开受限的系统临时目录。 */
     @BeforeEach
-    void setup() {
+    void setup() throws Exception {
+        root = Path.of("target", "test-files", UUID.randomUUID().toString()).toAbsolutePath();
+        Files.createDirectories(root);
         var settings = new ContractStorageProperties();
         settings.setRoot(root.toString());
         storage = new ContractFileStorage(settings);
+    }
+
+    /** 只清理由本测试 UUID 隔离目录创建的测试文件。 */
+    @AfterEach
+    void cleanup() throws Exception {
+        if (root == null || !Files.exists(root)) return;
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+        }
     }
 
     /** 同名业务文件反复上传会产生独立版本，下载保持原名与原内容。 */

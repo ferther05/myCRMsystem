@@ -7,6 +7,9 @@ import com.bishe.crm.module.auth.security.AuthPrincipal;
 import com.bishe.crm.module.contract.dto.ContractQuery;
 import com.bishe.crm.module.contract.dto.ContractRequests;
 import com.bishe.crm.module.contract.service.ContractService;
+import com.bishe.crm.module.contract.service.PaymentService;
+import com.bishe.crm.module.contract.dto.PaymentRequests;
+import com.bishe.crm.module.contract.vo.PaymentOverviewVO;
 import com.bishe.crm.module.contract.vo.ContractDetailVO;
 import com.bishe.crm.module.contract.vo.ContractRegistrationVO;
 import com.bishe.crm.module.contract.vo.ContractSummaryVO;
@@ -33,6 +36,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class ContractController {
 
     private final ContractService contracts;
+    private final PaymentService payments;
 
     /** 按当前用户可见范围分页查询记录。 */
     @GetMapping
@@ -169,6 +173,106 @@ public class ContractController {
         @Valid @RequestBody ContractRequests.SigningProgress request
     ) {
         contracts.updateSigningProgress(actor, id, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 查询计划版本、到账记录、合同余额与当前可执行操作。 */
+    @GetMapping("/{id}/payments")
+    public ApiResponse<PaymentOverviewVO> payments(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id
+    ) {
+        return ApiResponse.success(payments.overview(actor, id));
+    }
+
+    /** 为合同新建首版或后续换版的回款计划草稿。 */
+    @PostMapping("/{id}/payment-plans")
+    public ApiResponse<Long> createPaymentPlan(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody PaymentRequests.Plan request
+    ) {
+        return ApiResponse.success(payments.savePlan(actor, id, null, request));
+    }
+
+    /** 修改尚未提交的回款计划草稿。 */
+    @PutMapping("/{id}/payment-plans/{planId}")
+    public ApiResponse<Void> editPaymentPlan(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long planId,
+        @Valid @RequestBody PaymentRequests.Plan request
+    ) {
+        payments.savePlan(actor, id, planId, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 提交计划并生成经理审批待办来源。 */
+    @PostMapping("/{id}/payment-plans/{planId}/submit")
+    public ApiResponse<Void> submitPaymentPlan(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long planId,
+        @Valid @RequestBody PaymentRequests.Submit request
+    ) {
+        payments.submitPlan(actor, id, planId, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 经理或管理员通过/退回计划版本。 */
+    @PostMapping("/{id}/payment-plans/{planId}/review")
+    public ApiResponse<Void> reviewPaymentPlan(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long planId,
+        @Valid @RequestBody PaymentRequests.Review request
+    ) {
+        payments.reviewPlan(actor, id, planId, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 登记实际到账并核销到指定期次。 */
+    @PostMapping("/{id}/payment-records")
+    public ApiResponse<Void> registerPayment(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody PaymentRequests.Receipt request
+    ) {
+        payments.registerReceipt(actor, id, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 管理员保留原记录并作废误录到账。 */
+    @PostMapping("/{id}/payment-records/{receiptId}/void")
+    public ApiResponse<Void> voidPayment(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Positive @PathVariable Long receiptId,
+        @Valid @RequestBody PaymentRequests.VoidReceipt request
+    ) {
+        payments.voidReceipt(actor, id, receiptId, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 发起“终止且无应收”审批。 */
+    @PostMapping("/{id}/termination")
+    public ApiResponse<Void> requestTermination(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody PaymentRequests.Termination request
+    ) {
+        payments.requestTermination(actor, id, request);
+        return ApiResponse.success(null);
+    }
+
+    /** 审批通过或退回合同终止申请。 */
+    @PostMapping("/{id}/termination/review")
+    public ApiResponse<Void> reviewTermination(
+        @AuthenticationPrincipal AuthPrincipal actor,
+        @Positive @PathVariable Long id,
+        @Valid @RequestBody PaymentRequests.Review request
+    ) {
+        payments.reviewTermination(actor, id, request);
         return ApiResponse.success(null);
     }
 }

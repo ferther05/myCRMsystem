@@ -39,6 +39,11 @@ VALUES
 ON DUPLICATE KEY UPDATE
     config_value = VALUES(config_value), display_name = VALUES(display_name), enabled = VALUES(enabled);
 
+-- 新库默认开启自动回收；重跑种子不得覆盖管理员的开关决定。
+INSERT INTO sys_config(config_type,config_group,config_key,config_value,display_name,enabled)
+VALUES('PARAM','crm.recycle','enabled','true','公海自动回收开关',1)
+ON DUPLICATE KEY UPDATE id=id;
+
 SELECT id, username, real_name, role_code, team_id, account_status
 FROM sys_user
 ORDER BY id;

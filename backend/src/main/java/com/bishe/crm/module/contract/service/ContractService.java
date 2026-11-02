@@ -61,6 +61,7 @@ public class ContractService {
     private final Clock businessClock;
 
     private final ContractFileStorage fileStorage;
+    private final PaymentService paymentService;
 
     /** 按当前用户可见范围分页查询记录。 */
     @Transactional(readOnly = true)
@@ -577,8 +578,10 @@ public class ContractService {
             "实际签署合同文件核验通过：" + request.opinion().trim(),
             false
         );
+        contracts.capturePerformance(c.getId(), now());
         contracts.protectCustomer(c.getCustomerId(), now());
         opportunityService.advanceFromBusiness(opportunity.getId());
+        paymentService.refreshAfterSigning(c.getId());
     }
 
     /** 更新状态、进度历史和审计同一事务，拒绝旧版本与重复请求。 */
@@ -846,9 +849,33 @@ public class ContractService {
             value.put("resumeSigningProgress", c.getResumeSigningProgress());
             value.put("amount", c.getContractAmount());
             value.put("version", c.getVersion());
+            value.put("externalContractNo",c.getExternalContractNo());
+            value.put("contractName",c.getContractName());
+            value.put("businessType",c.getBusinessType());
+            value.put("ourPartyName",c.getOurPartyName());
+            value.put("counterpartyName",c.getCounterpartyName());
+            value.put("plannedSignedAt",c.getPlannedSignedAt());
+            value.put("signedAt",c.getSignedAt());
+            value.put("expireDate",c.getExpireDate());
+            value.put("receivedAmount",c.getReceivedAmount());
+            value.put("outstandingAmount",c.getOutstandingAmount());
+            value.put("ourContactName",c.getOurContactName());
+            value.put("counterpartyContactName",c.getCounterpartyContactName());
+            value.put("ourContactPhone",auditText(c.getOurContactPhone()));
+            value.put("counterpartyContactPhone",auditText(c.getCounterpartyContactPhone()));
+            value.put("description",auditText(c.getDescription()));
+            value.put("paymentTerms",auditText(c.getPaymentTerms()));
+            value.put("deliveryTerms",auditText(c.getDeliveryTerms()));
             return json.writeValueAsString(value);
         } catch (Exception e) {
             throw new IllegalStateException("无法记录合同审计", e);
         }
+    }
+
+    /** 审计正文遮蔽电话、邮箱和信用代码；不复制合同文件内容。 */
+    private String auditText(String value) {
+        return value==null?null:value.replaceAll("[0-9A-Z]{18}","[信用代码已隐藏]")
+            .replaceAll("\\+?[0-9][0-9 ()-]{5,}[0-9]","[号码已隐藏]")
+            .replaceAll("(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\\.[a-z]{2,}","[邮箱已隐藏]");
     }
 }

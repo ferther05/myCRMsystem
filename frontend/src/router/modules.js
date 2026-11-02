@@ -36,11 +36,13 @@ export const modules = [
   },
   {
     path: '/tasks',
+    ready: true,
     title: '任务与日志',
     icon: 'List',
     group: '协同管理',
     description: '待办、提醒和操作追溯',
   },
+  { path: '/recycle', title: '公海自动回收', icon: 'Refresh', group: '协同管理', roles: ['ADMIN'], ready: true },
   {
     path: '/approvals',
     ready: true,

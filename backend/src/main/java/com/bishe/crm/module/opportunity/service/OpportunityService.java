@@ -77,6 +77,7 @@ public class OpportunityService {
     private final Clock businessClock;
     private final CustomerMapper customers;
     private final FollowRecordMapper follows;
+    private final com.bishe.crm.module.contract.service.PaymentService payments;
 
     /** 按当前用户可见范围分页查询记录。 */
     @Transactional(readOnly = true)
@@ -344,6 +345,7 @@ public class OpportunityService {
         opportunities.resolveTodos(id, now);
         if (List.of("WON", "LOST", "CLOSED").contains(to)) opportunities.endCollaborators(id, now);
         opportunities.refreshCustomerProtection(opportunity.getCustomerId(), now);
+        payments.refreshCustomerCompletion(opportunity.getCustomerId());
     }
 
     /** 仅更新当前商机的停滞与宽限阈值。 */

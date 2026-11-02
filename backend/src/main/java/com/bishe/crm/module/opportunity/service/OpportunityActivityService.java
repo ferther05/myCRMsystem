@@ -26,17 +26,20 @@ public class OpportunityActivityService {
     private final CustomerMapper customers;
     private final Clock businessClock;
     private final TransactionTemplate transaction;
+    private final com.bishe.crm.module.task.service.JobExecutionService jobs;
 
     /** 注入扫描依赖，并为每条商机配置独立事务。 */
     public OpportunityActivityService(
         OpportunityMapper opportunities,
         CustomerMapper customers,
         Clock businessClock,
-        PlatformTransactionManager manager
+        PlatformTransactionManager manager,
+        com.bishe.crm.module.task.service.JobExecutionService jobs
     ) {
         this.opportunities = opportunities;
         this.customers = customers;
         this.businessClock = businessClock;
+        this.jobs = jobs;
         transaction = new TransactionTemplate(manager);
         transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -47,47 +50,22 @@ public class OpportunityActivityService {
         scanNow(null);
     }
 
-    // 单实例内串行运行；每条商机独立提交，失败不会回滚其他商机。
-    /** 串行扫描候选商机，逐条提交并汇总成功与失败。 */
-    public synchronized Map<String, Object> scanNow(Long actorId) {
-        LocalDateTime now = LocalDateTime.now(businessClock);
-        String runId = "opportunity-activity-scan:" + now.toLocalDate();
-        opportunities.startRun(now.toLocalDate(), runId, now, actorId);
-        int success = 0,
-            changed = 0;
-        List<Long> failed = new ArrayList<>();
-        for (Long id : opportunities.activityCandidates()) {
-            try {
-                Boolean updated = transaction.execute(status -> scanOne(id, now, runId, actorId));
-                if (Boolean.TRUE.equals(updated)) changed++;
-                success++;
-            } catch (RuntimeException e) {
-                failed.add(id);
-                log.error("商机扫描失败 id={}", id, e);
-            }
-        }
-        opportunities.finishRun(
-            runId,
-            LocalDateTime.now(businessClock),
-            failed.isEmpty() ? "SUCCESS" : "PARTIAL_FAILURE",
-            success,
-            failed.size(),
-            failed.toString()
-        );
-        return Map.of(
-            "runId",
-            runId,
-            "processed",
-            success,
-            "changed",
-            changed,
-            "failedIds",
-            failed
-        );
+    /** 手动或定时扫描当天候选商机。 */
+    public Map<String, Object> scanNow(Long actorId) {
+        return scanSelected(java.time.LocalDate.now(businessClock),actorId,null);
+    }
+
+    /** 补跑只选择服务器记录的失败对象，每条重新核对最新事实。 */
+    public Map<String, Object> scanSelected(java.time.LocalDate date, Long actorId, Long retryId) {
+        LocalDateTime now=LocalDateTime.now(businessClock);
+        String runId="opportunity-activity-scan:"+date;
+        return jobs.execute("opportunity-activity-scan",date,actorId,retryId,
+            opportunities::activityCandidates,
+            id -> transaction.execute(status -> scanOne(id,now,date,runId,actorId)));
     }
 
     /** 重新核对商机状态，计算活跃度并去重生成提醒。 */
-    private boolean scanOne(Long id, LocalDateTime now, String runId, Long actorId) {
+    private boolean scanOne(Long id, LocalDateTime now, java.time.LocalDate businessDate, String runId, Long actorId) {
         Opportunity found = opportunities.find(id);
         if (found == null || customers.lock(found.getCustomerId()) == null) return false;
         Opportunity o = opportunities.lock(id);
@@ -141,7 +119,7 @@ public class OpportunityActivityService {
                     type,
                     id,
                     occurrence,
-                    now.toLocalDate(),
+                    businessDate,
                     recipient,
                     "商机" + id + ("STAGNANT".equals(next) ? "停滞提醒" : "待关闭裁决"),
                     runId
@@ -152,7 +130,7 @@ public class OpportunityActivityService {
                         "OPP_ESCALATED",
                         id,
                         occurrence,
-                        now.toLocalDate(),
+                        businessDate,
                         recipient,
                         "商机" + id + "待关闭已超3天，请裁决；仍保持回收保护",
                         runId

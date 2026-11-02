@@ -6,6 +6,10 @@ import { safeRedirect } from '@/utils/auth-rules';
 import { modules, canVisit } from './modules';
 
 const moduleViews = {
+  /** 按需加载管理员回收预览。 */
+  '/recycle': () => import('@/views/customer/RecycleView.vue'),
+  /** 按需加载任务与日志页面。 */
+  '/tasks': () => import('@/views/task/TasksView.vue'),
   /** 按需加载业务页面组件。 */
   '/workbench': () => import('@/views/workbench/WorkbenchView.vue'),
   /** 按需加载业务页面组件。 */

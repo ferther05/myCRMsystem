@@ -282,7 +282,8 @@ async function openDialog(mode) {
       content: '',
       substantiveResult: '',
       nextAction: '',
-      nextActionAt: '',
+      // 与客户跟进一致，默认明天同一时间，负责人仍可按实际安排修改。
+      nextActionAt: localDateTime(new Date(Date.now() + 86400000)),
       followedAt: localDateTime(new Date()),
     });
 }
@@ -688,7 +689,7 @@ onMounted(async () => {
             @click="createContract"
             >创建合同登记</el-button
           >
-          <el-button :icon="Plus" @click="openDialog('follow')">跟进</el-button>
+          <el-button v-if="active" :icon="Plus" @click="openDialog('follow')">跟进</el-button>
           <el-button v-if="detail.canSetThreshold" :icon="Clock" @click="openDialog('threshold')"
             >停滞阈值</el-button
           >

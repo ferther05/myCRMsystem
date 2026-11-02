@@ -221,6 +221,10 @@ class ContractModuleIT {
         ok(review(manager, true));
         assertStep("FILE_CONFIRMED");
         assertThat(cd().path("contractStatus").asText()).isEqualTo("SIGNED");
+        assertThat(jdbc.queryForObject("SELECT performance_owner_id FROM crm_contract WHERE id=?",Long.class,contract)).isEqualTo(sales);
+        assertThat(jdbc.queryForObject("SELECT performance_team_id FROM crm_contract WHERE id=?",Long.class,contract)).isEqualTo(team);
+        assertThat(jdbc.queryForObject("SELECT performance_confirmed_at IS NOT NULL FROM crm_contract WHERE id=?",Boolean.class,contract)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT performance_legacy FROM crm_contract WHERE id=?",Integer.class,contract)).isZero();
         assertThat(
             ok(call("GET", "/api/opportunities/" + opportunity, sales, null))
                 .path("stageCode")

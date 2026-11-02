@@ -20,9 +20,10 @@ import org.apache.ibatis.annotations.*;
 @Mapper
 public interface OpportunityMapper extends BaseMapper<Opportunity> {
     String SCOPE =
-        "<choose><when test=\"s.role == 'ADMIN'\">1=1</when>" +
-        "<when test=\"s.role == 'MANAGER'\">o.team_id=#{s.teamId}</when>" +
-        "<otherwise>(o.owner_id=#{s.userId} OR EXISTS (SELECT 1 FROM crm_opportunity_collaborator cx WHERE cx.opportunity_id=o.id AND cx.user_id=#{s.userId} AND cx.collaborator_status='ACTIVE'))</otherwise></choose>";
+        "<choose><when test=\"s.role == 'ADMIN'\">1=1</when><otherwise>" +
+        "c.deleted=0 AND c.sea_type='PRIVATE' AND <choose>" +
+        "<when test=\"s.role == 'MANAGER'\">c.team_id=#{s.teamId}</when>" +
+        "<otherwise>((o.stage_code IN ('LOST','CLOSED') AND c.owner_id=#{s.userId}) OR (o.stage_code NOT IN ('LOST','CLOSED') AND (o.owner_id=#{s.userId} OR EXISTS(SELECT 1 FROM crm_opportunity_collaborator cx WHERE cx.opportunity_id=o.id AND cx.user_id=#{s.userId} AND cx.collaborator_status='ACTIVE'))))</otherwise></choose></otherwise></choose>";
     String FIELDS =
         "SELECT o.id,o.customer_id,c.customer_name,o.opportunity_name,o.owner_id,u.real_name owner_name,o.team_id,t.team_name," +
         "o.stage_code,o.activity_status,o.stagnation_days,o.grace_days,o.expected_amount,o.expected_close_date," +
@@ -167,7 +168,7 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
 
     /** 查询可分配的启用经理和专员。 */
     @Select(
-        "<script>SELECT DISTINCT u.id,u.real_name realName FROM crm_opportunity o JOIN sys_user u ON u.id=o.owner_id WHERE " +
+        "<script>SELECT DISTINCT u.id,u.real_name realName FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id JOIN sys_user u ON u.id=o.owner_id WHERE " +
             SCOPE +
             " ORDER BY u.id</script>"
     )
@@ -341,7 +342,7 @@ public interface OpportunityMapper extends BaseMapper<Opportunity> {
 
     /** 按阶段汇总商机数量和预计金额。 */
     @Select(
-        "<script>SELECT o.stage_code,COUNT(*) opportunity_count,COALESCE(SUM(o.expected_amount),0) expected_amount FROM crm_opportunity o WHERE " +
+        "<script>SELECT o.stage_code,COUNT(*) opportunity_count,COALESCE(SUM(o.expected_amount),0) expected_amount FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id WHERE " +
             SCOPE +
             "<if test=\"from != null\"> AND o.created_at &gt;= #{from}</if><if test=\"to != null\"> AND o.created_at &lt; #{to}</if>" +
             "<if test=\"ownerId != null\"> AND o.owner_id=#{ownerId}</if> GROUP BY o.stage_code ORDER BY FIELD(o.stage_code,'NEW','FOLLOWING','QUOTED','DEAL','WON','LOST','CLOSED')</script>"
