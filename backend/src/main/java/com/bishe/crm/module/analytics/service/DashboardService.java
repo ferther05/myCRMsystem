@@ -51,13 +51,17 @@ public class DashboardService {
             }
             var c=mapper.conversion(scope,owner,start,end);long deal=n(c,"dealCount"),won=n(c,"wonCount");
             var conversion=new Conversion(n(c,"cohortCount"),deal,won,deal==0?null:BigDecimal.valueOf(won).multiply(BigDecimal.valueOf(100)).divide(BigDecimal.valueOf(deal),2,RoundingMode.HALF_UP),c.get("averageSigningDays")==null?null:money(c,"averageSigningDays"));
+            String[][] stageNames={{"NEW","线索"},{"FOLLOWING","跟进"},{"QUOTED","报价"},{"DEAL","成交"}};
+            var durationRows=mapper.stageDurations(scope,owner,LocalDateTime.now(clock));var durations=new ArrayList<StageDuration>();
+            for(var pair:stageNames){var row=durationRows.stream().filter(r->pair[0].equals(r.get("code"))).findFirst().orElse(Map.of());durations.add(new StageDuration(pair[0],pair[1],n(row,"opportunityCount"),row.get("averageDays")==null?BigDecimal.ZERO.setScale(2):money(row,"averageDays")));}
+            var quality=new ProcessQuality(durations,mapper.rollbackCount(scope,owner,start,end));
             // 赢单数按首次赢单事件去重，不把合同份数误称为赢单商机数。
             var ranks=mapper.ranking(scope,owner,start,end).stream().map(r->new Rank(n(r,"ownerId"),Objects.toString(r.get("ownerName"),"历史账号"),Objects.toString(r.get("teamName"),"未分配团队"),n(r,"signedCount"),money(r,"signedAmount"),money(r,"receivedAmount"),n(r,"wonCount"))).toList();
-            result=new Result(from,to,"ADMIN".equals(actor.roleCode())?"全部业务":"MANAGER".equals(actor.roleCode())?"本团队业务":"本人业务",LocalDateTime.now(clock),source,metrics,stages,trends,ranks,conversion,List.of(),n(m,"legacyContracts"),n(m,"legacyReceipts"));
+            result=new Result(from,to,"ADMIN".equals(actor.roleCode())?"全部业务":"MANAGER".equals(actor.roleCode())?"本团队业务":"本人业务",LocalDateTime.now(clock),source,metrics,stages,trends,ranks,conversion,List.of(),n(m,"legacyContracts"),n(m,"legacyReceipts"),quality);
             if(key.equals(cache.key(identity)))cache.put(key,result);
         } else source="Redis缓存";
         var actions=mapper.actions(actor.id()).stream().map(r->{String type=Objects.toString(r.get("type"));String title=switch(type){case "CONTRACT_REVIEW"->"合同待核验";case "CARE_BIRTHDAY"->"联系人生日关怀";case "FOLLOW_DUE"->"下次跟进提醒";case "CONTRACT_STAGNANT"->"合同办理停滞";case "CUSTOMER_WARNING"->"客户回收预警";case "APPROVAL"->"待审核申请";case "PAYMENT_OVERDUE"->"逾期回款提醒";case "OPP_STAGNANT"->"商机停滞提醒";case "OPP_CLOSE_PENDING"->"商机待裁决";case "OPP_ESCALATED"->"商机裁决超时";default->"其他待处理事项";};return new Action(type,title,n(r,"count"),"/tasks?type="+type);}).toList();
-        return new Result(result.from(),result.to(),result.scope(),result.generatedAt(),source,result.metrics(),result.stages(),result.trends(),result.ranking(),result.conversion(),actions,result.legacyContracts(),result.legacyReceipts());
+        return new Result(result.from(),result.to(),result.scope(),result.generatedAt(),source,result.metrics(),result.stages(),result.trends(),result.ranking(),result.conversion(),actions,result.legacyContracts(),result.legacyReceipts(),result.processQuality());
     }
     /** 聚合空值统一补零，金额仅用十进制数。 */
     private BigDecimal money(Map<String,Object> row,String key) {Object v=row.get(key);return v==null?new BigDecimal("0.00"):new BigDecimal(v.toString()).setScale(2,RoundingMode.HALF_UP);}

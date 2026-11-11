@@ -1,7 +1,8 @@
 <!-- 文件作用：办理内部账号申请、驳回重提及管理员审核。 -->
 <script setup>
+import DetailSection from '@/components/DetailSection.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { ElDialog, ElMessage, ElRadioGroup, ElRadio } from 'element-plus';
+import { ElDescriptions, ElDescriptionsItem, ElDialog, ElMessage, ElRadioGroup, ElRadio } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
 import { useAuthStore } from '@/store/auth';
@@ -14,6 +15,7 @@ import {
 } from '@/utils/account-rules';
 import * as api from '@/api/users';
 const auth = useAuthStore();
+const applicationDetail = ref(null);
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
 const rows = ref([]),
   total = ref(0),
@@ -181,7 +183,7 @@ onMounted(load);
       <el-table-column prop="username" label="申请账号" min-width="170" />
       <el-table-column prop="realName" label="成员姓名" min-width="120" />
       <el-table-column prop="teamName" label="所属团队" min-width="150" />
-      <el-table-column prop="applicantName" label="申请经理" min-width="120" />
+
       <el-table-column label="审核状态" min-width="105">
         <template #default="{ row }">
           <el-tag
@@ -197,11 +199,10 @@ onMounted(load);
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="reason" label="申请原因" min-width="220" />
-      <el-table-column prop="reviewOpinion" label="审核意见" min-width="220" />
+
       <el-table-column prop="submittedAt" label="提交时间" min-width="190" />
-      <el-table-column label="操作" min-width="130" fixed="right">
-        <template #default="{ row }">
+      <el-table-column label="操作" min-width="210" fixed="right">
+        <template #default="{ row }"><el-button link type="primary" @click="applicationDetail = row">详情</el-button>
           <el-button
             v-if="admin && row.approvalStatus === 'PENDING'"
             link
@@ -222,6 +223,11 @@ onMounted(load);
       </el-table-column>
     </DataTable>
     <p class="scope-note">申请会保留唯一账号名，审核通过前不能登录。驳回后经理可以重新提交；历史处理动作保存在操作日志中。当前审批页只开放账号申请。</p>
+<el-drawer :model-value="Boolean(applicationDetail)" @close="applicationDetail = null" title="申请详情" size="min(640px, 100%)"><template v-if="applicationDetail">
+<DetailSection title="申请成员" emphasis><el-descriptions :column="1" border><el-descriptions-item label="姓名 / 账号">{{ applicationDetail.realName }} / {{ applicationDetail.username }}</el-descriptions-item><el-descriptions-item label="团队 / 申请经理">{{ applicationDetail.teamName }} / {{ applicationDetail.applicantName }}</el-descriptions-item><el-descriptions-item label="联系电话">{{ applicationDetail.phone || '未填写' }}</el-descriptions-item><el-descriptions-item label="邮箱">{{ applicationDetail.email || '未填写' }}</el-descriptions-item></el-descriptions></DetailSection>
+<DetailSection title="申请说明"><p class="detail-prose">{{ applicationDetail.reason || '未填写' }}</p></DetailSection>
+<DetailSection title="审核结果"><el-descriptions :column="1" border><el-descriptions-item label="当前状态">{{ APPROVAL_STATUS[applicationDetail.approvalStatus] }}</el-descriptions-item><el-descriptions-item label="提交时间">{{ applicationDetail.submittedAt?.replace('T',' ').slice(0,19) }}</el-descriptions-item><el-descriptions-item label="审核意见">{{ applicationDetail.reviewOpinion || '暂无审核意见' }}</el-descriptions-item></el-descriptions><el-button v-if="admin && applicationDetail.approvalStatus === 'PENDING'" type="primary" @click="open(applicationDetail); applicationDetail = null">审核申请</el-button></DetailSection>
+</template></el-drawer>
     <el-dialog
       v-model="dialogOpen"
       :title="admin ? '审核账号申请' : '申请本团队专员账号'"
@@ -275,7 +281,7 @@ onMounted(load);
           <p class="scope-note">角色固定为销售专员，所属团队由你的当前团队自动确定。</p>
         </template>
         <template v-else>
-          <p>{{ target?.realName }} · {{ target?.username }} · {{ target?.teamName }}</p>
+          <DetailSection title="待核对申请" emphasis><p>{{ target?.realName }} · {{ target?.username }} · {{ target?.teamName }}</p><p class="detail-prose">申请原因：{{ target?.reason || '未填写' }}</p></DetailSection>
           <el-form-item label="审核结果">
             <el-radio-group v-model="form.approved">
               <el-radio :value="true">通过</el-radio>

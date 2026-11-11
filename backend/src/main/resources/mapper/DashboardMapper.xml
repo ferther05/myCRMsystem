@@ -57,6 +57,17 @@
       FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id WHERE <include refid="current"/> AND o.created_at &gt;= #{start} AND o.created_at &lt; #{end}
     ) x
   </select>
+  <select id="stageDurations" resultType="map">
+    SELECT o.stage_code code,COUNT(*) opportunityCount,AVG(TIMESTAMPDIFF(SECOND,COALESCE(last_stage.occurred_at,o.created_at),#{now})/86400.0) averageDays
+    FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id
+    LEFT JOIN (SELECT l.opportunity_id,MAX(l.occurred_at) occurred_at FROM crm_opportunity_stage_log l JOIN crm_opportunity current_opp ON current_opp.id=l.opportunity_id AND current_opp.stage_code=l.to_stage GROUP BY l.opportunity_id) last_stage ON last_stage.opportunity_id=o.id
+    WHERE <include refid="current"/> AND o.stage_code IN ('NEW','FOLLOWING','QUOTED','DEAL') AND (last_stage.occurred_at IS NULL OR last_stage.occurred_at &lt;= #{now})
+    GROUP BY o.stage_code
+  </select>
+  <select id="rollbackCount" resultType="long">
+    SELECT COUNT(*) FROM crm_opportunity_stage_log l JOIN crm_opportunity o ON o.id=l.opportunity_id JOIN crm_customer c ON c.id=o.customer_id
+    WHERE l.action_code='ROLLBACK' AND l.occurred_at &gt;= #{start} AND l.occurred_at &lt; #{end} AND <include refid="current"><property name="person" value="o.owner_id"/><property name="team" value="o.team_id"/></include>
+  </select>
   <select id="actions" resultType="map">
     SELECT todo_type type,COUNT(*) count FROM crm_todo WHERE recipient_id=#{actor} AND todo_status='PENDING' GROUP BY todo_type ORDER BY todo_type
   </select>

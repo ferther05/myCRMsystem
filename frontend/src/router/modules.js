@@ -24,15 +24,7 @@ export const modules = [
     title: '商机管理',
     icon: 'TrendCharts',
     group: '销售业务',
-    description: '从线索到赢单的阶段推进',
-  },
-  {
-    path: '/contracts',
-    ready: true,
-    title: '合同登记',
-    icon: 'Document',
-    group: '销售业务',
-    description: '合同登记、签署资料与经理核验',
+    description: '商机阶段推进、合同登记、签署与回款',
   },
   {
     path: '/tasks',

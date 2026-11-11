@@ -21,6 +21,9 @@ public interface DashboardMapper {
     List<Map<String,Object>> ranking(@Param("s") DataScope scope,@Param("owner") Long owner,@Param("start") LocalDateTime start,@Param("end") LocalDateTime end);
     /** 同一创建批次的历史到达成交、赢单记录，不用当前阶段数量冒充转化。 */
     Map<String,Object> conversion(@Param("s") DataScope scope,@Param("owner") Long owner,@Param("start") LocalDateTime start,@Param("end") LocalDateTime end);
+    /** 当前阶段停留时长与筛选期内回退次数，复用同一权限范围。 */
+    List<Map<String,Object>> stageDurations(@Param("s") DataScope scope,@Param("owner") Long owner,@Param("now") LocalDateTime now);
+    long rollbackCount(@Param("s") DataScope scope,@Param("owner") Long owner,@Param("start") LocalDateTime start,@Param("end") LocalDateTime end);
     /** 本人当前待办始终实时查询，不把管理员待办分享给其他角色。 */
     List<Map<String,Object>> actions(Long actor);
 }

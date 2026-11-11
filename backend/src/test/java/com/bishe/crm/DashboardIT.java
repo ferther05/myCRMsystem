@@ -7,6 +7,7 @@ import com.bishe.crm.module.auth.security.*;
 import com.bishe.crm.module.contract.mapper.*;
 import com.bishe.crm.module.system.mapper.SystemUserMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.math.*;
 import java.time.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
@@ -103,6 +104,32 @@ class DashboardIT {
         jdbc.update("INSERT INTO crm_opportunity_stage_log(opportunity_id,to_stage,action_code,occurred_at) VALUES(?,'WON','AUTO_ADVANCE',?)",f.opportunity,today.atTime(3,0));
         assertThat(data(f.sales,"&refresh=true").path("conversion").path("wonCount").asInt()).isEqualTo(1);
         assertThat(data(f.peer,"").path("conversion").path("dealToWonRate").isNull()).isTrue();
+    }
+    /** 过程质量按当前阶段及所选期间统计，并保持本人/团队/全局范围。 */
+    @Test void processQualityUsesScopedCurrentStageAndPeriodRollbacks() {
+        jdbc.update("UPDATE crm_opportunity SET stage_code='FOLLOWING',created_at=? WHERE id=?",today.minusDays(4).atTime(0,0),f.opportunity);
+        jdbc.update("DELETE FROM crm_opportunity_stage_log WHERE opportunity_id=?",f.opportunity);
+        LocalDateTime enteredFollowing=today.atTime(2,0);
+        jdbc.update("INSERT INTO crm_opportunity_stage_log(opportunity_id,from_stage,to_stage,action_code,occurred_at) VALUES(?,'NEW','FOLLOWING','AUTO_ADVANCE',?)",f.opportunity,enteredFollowing);
+        jdbc.update("INSERT INTO crm_opportunity_stage_log(opportunity_id,from_stage,to_stage,action_code,occurred_at) VALUES(?,'FOLLOWING','NEW','ROLLBACK',?)",f.opportunity,today.atTime(1,0));
+        var specialist=data(f.sales,"&refresh=true").path("processQuality");
+        assertThat(specialist.path("rollbackCount").asLong()).isEqualTo(1);
+        var duration=specialist.path("stageDurations").get(1);
+        assertThat(duration.path("code").asText()).isEqualTo("FOLLOWING");
+        assertThat(duration.path("opportunityCount").asLong()).isEqualTo(1);
+        BigDecimal expectedDays=BigDecimal.valueOf(Duration.between(enteredFollowing,LocalDateTime.now(clock)).toMillis()/86_400_000.0).setScale(2,RoundingMode.HALF_UP);
+        assertThat(duration.path("averageDays").decimalValue()).isEqualByComparingTo(expectedDays);
+        assertThat(data(f.peer,"&refresh=true").path("processQuality").path("rollbackCount").asLong()).isZero();
+        assertThat(data(f.manager,"&refresh=true").path("processQuality").path("rollbackCount").asLong()).isEqualTo(1);
+        assertThat(data(f.admin,"&ownerId="+f.sales+"&refresh=true").path("processQuality").path("rollbackCount").asLong()).isEqualTo(1);
+        assertThat(data(f.sales,"&refresh=true").path("processQuality").path("stageDurations").get(0).path("opportunityCount").asLong()).isZero();
+        assertThat(data(f.sales,"&refresh=true").path("processQuality").path("stageDurations").get(1).path("opportunityCount").asLong()).isEqualTo(1);
+        jdbc.update("UPDATE crm_opportunity_stage_log SET occurred_at=? WHERE opportunity_id=? AND action_code='ROLLBACK'",today.minusDays(1).atTime(23,59,59),f.opportunity);
+        assertThat(data(f.sales,"&refresh=true").path("processQuality").path("rollbackCount").asLong()).isZero();
+        jdbc.update("DELETE FROM crm_opportunity_stage_log WHERE opportunity_id=?",f.opportunity);
+        var fallback=data(f.sales,"&refresh=true").path("processQuality").path("stageDurations").get(1);
+        assertThat(fallback.path("opportunityCount").asLong()).isEqualTo(1);
+        assertThat(fallback.path("averageDays").decimalValue()).isBetween(new BigDecimal("4.00"),new BigDecimal("5.00"));
     }
     /** Redis真实读写、不同用户隔离、提交后失效、回滚保持原缓存均可复现。 */
     @Test void cacheInvalidatesOnlyAfterCommit() {

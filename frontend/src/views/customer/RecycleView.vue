@@ -1,12 +1,14 @@
 <!-- 文件作用：管理员查看自动回收状态，必要时应急暂停或检查执行结果。 -->
 <script setup>
+import DetailSection from '@/components/DetailSection.vue';
 import { onMounted, ref, watch } from 'vue';
-import { ElCollapse, ElCollapseItem, ElMessage, ElMessageBox } from 'element-plus';
+import { ElDescriptions, ElDescriptionsItem, ElCollapse, ElCollapseItem, ElMessage, ElMessageBox } from 'element-plus';
 import { useRouter } from 'vue-router';
 import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
 import * as api from '@/api/recycle';
 const router = useRouter();
+const selectedRule = ref(null);
 const rows = ref([]), total = ref(0), page = ref(1), keyword = ref(''), setting = ref(null), loading = ref(false), busy = ref(false), error = ref(''), maintenance = ref([]);
 const decisions = { WAITING: '正常跟进', NEED_WARNING: '等待系统提醒', WARNING: '请及时跟进', ELIGIBLE: '等待系统回收', PROTECTED: '业务保护中' };
 let generation = 0;
@@ -46,16 +48,16 @@ watch(page, load); onMounted(load);
     <div class="panel recycle-toolbar">
       <el-alert v-if="setting" :title="setting.enabled ? '自动运行中 · 每10分钟检查，无需手动发送预警或执行扫描。' : '已应急暂停 · 系统暂不预警或回收，请在排查后恢复运行。'" :type="setting.enabled ? 'success' : 'warning'" :closable="false" />
       <div class="actions"><el-input v-model="keyword" placeholder="客户名称" clearable maxlength="160" @keyup.enter="search" /><el-button type="primary" @click="search">查询</el-button><el-button @click="load">刷新</el-button></div>
-      <p>首联48小时预警／72小时到期；有效跟进27天预警／30天到期。未结束商机、合同回款、待审跟进、审批与交接受保护。页面结果仅供预览，执行时会再次复核。</p>
+      <details class="secondary-disclosure"><summary>查看回收规则与保护条件</summary><p>首联48小时预警／72小时到期；有效跟进27天预警／30天到期。未结束商机、合同回款、待审跟进、审批与交接受保护。页面结果仅供预览，执行时会再次复核。</p></details>
       <el-collapse v-model="maintenance"><el-collapse-item title="异常处理（平时无需操作）" name="maintenance"><el-button :disabled="busy || !setting" @click="toggle">{{ setting?.enabled ? '应急暂停' : '恢复自动运行' }}</el-button><el-button :loading="busy" @click="scan">立即检查一次</el-button><el-button @click="router.push('/tasks')">查看执行记录</el-button></el-collapse-item></el-collapse>
     </div>
     <DataTable :rows="rows" :total="total" :loading="loading" :error="error" v-model:page="page" @retry="load">
       <el-table-column prop="customerName" label="客户" min-width="210" show-overflow-tooltip />
       <el-table-column label="负责人 / 团队" min-width="160"><template #default="{ row }">{{ row.ownerName }}<p class="muted">{{ row.teamName }}</p></template></el-table-column>
       <el-table-column label="判定" width="155"><template #default="{ row }"><el-tag :type="row.rule.decision === 'ELIGIBLE' ? 'warning' : 'info'">{{ decisions[row.rule.decision] }}</el-tag></template></el-table-column>
-      <el-table-column label="期限 / 原因" min-width="280"><template #default="{ row }"><p>{{ time(row.rule.deadlineAt) }}</p><p class="muted">{{ row.rule.reason }}</p></template></el-table-column>
-      <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="router.push(`/customers?id=${row.id}`)">查看客户</el-button></template></el-table-column>
-    </DataTable>
+      <el-table-column label="回收截止" min-width="175"><template #default="{ row }"><p>{{ time(row.rule.deadlineAt) }}</p></template></el-table-column>
+      <el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="selectedRule = row">详情</el-button></template></el-table-column>
+    </DataTable><el-drawer :model-value="Boolean(selectedRule)" @close="selectedRule = null" title="回收判定详情" size="min(620px, 100%)"><template v-if="selectedRule"><DetailSection title="当前判定" emphasis><h3>{{ selectedRule.customerName }}</h3><p>{{ decisions[selectedRule.rule.decision] }}</p><p>{{ selectedRule.rule.reason }}</p></DetailSection><DetailSection title="归属与时效"><el-descriptions :column="1" border><el-descriptions-item label="负责人 / 团队">{{ selectedRule.ownerName }} / {{ selectedRule.teamName }}</el-descriptions-item><el-descriptions-item label="预警时间">{{ time(selectedRule.rule.warningAt) }}</el-descriptions-item><el-descriptions-item label="回收截止">{{ time(selectedRule.rule.deadlineAt) }}</el-descriptions-item></el-descriptions></DetailSection><el-button type="primary" @click="router.push(`/customers?id=${selectedRule.id}`)">查看客户与延期记录</el-button></template></el-drawer>
   </div>
 </template>
 <style scoped>

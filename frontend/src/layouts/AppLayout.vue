@@ -6,12 +6,16 @@ import { ElMessageBox, ElMessage } from 'element-plus';
 import { Fold, Expand, ArrowDown, Lock, SwitchButton, User } from '@element-plus/icons-vue';
 import BrandMark from '@/components/BrandMark.vue';
 import AppNavigation from './AppNavigation.vue';
+import AppIcon from '@/components/AppIcon.vue';
+import { rolePresentation } from '@/utils/page-presentation';
 import { useAuthStore } from '@/store/auth';
 import { ROLE_NAMES } from '@/utils/auth-rules';
 
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+// 角色识别只控制视觉提示，真实权限仍由后端负责。
+const identity = computed(() => rolePresentation[auth.user?.roleCode] || { title: '当前账号', focus: '工作空间', scope: '已授权业务', color: '#385b8e', soft: '#eef3fa', icon: 'User' });
 const compact = ref(false);
 const drawer = ref(false);
 const leaving = ref(false);
@@ -44,12 +48,16 @@ async function command(value) {
 }
 </script>
 <template>
-  <div class="app-shell" :class="{ compact }">
+  <div class="app-shell" :class="{ compact }" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft }">
     <a class="skip-link" href="#main-content">跳至主要内容</a>
     <aside class="app-sidebar">
       <router-link class="sidebar-brand" to="/workbench" aria-label="CRM 工作台">
         <BrandMark light :compact="compact" />
       </router-link>
+      <div v-if="!compact" class="role-card">
+        <span class="role-card-icon"><AppIcon :name="identity.icon" /></span>
+        <div><strong>{{ identity.title }}工作空间</strong><small>{{ identity.focus }}</small></div>
+      </div>
       <div class="sidebar-scroll"><AppNavigation :compact="compact" /></div>
       <div v-if="!compact" class="sidebar-footer">
         <span class="workspace-dot" />
@@ -84,10 +92,12 @@ async function command(value) {
             <el-icon :size="20"><Expand /></el-icon>
           </el-button>
           <el-breadcrumb separator="/">
-            <el-breadcrumb-item>工作空间</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ identity.focus }}</el-breadcrumb-item>
             <el-breadcrumb-item>{{ route.meta.title }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
+        <div class="header-account">
+          <span class="role-badge"><AppIcon :name="identity.icon" />{{ identity.title }}<small>{{ identity.scope }}</small></span>
         <el-dropdown trigger="click" @command="command">
           <button class="user-trigger" :disabled="leaving" aria-label="打开账号菜单">
             <span class="user-avatar">{{ initial }}</span>
@@ -104,18 +114,30 @@ async function command(value) {
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        </div>
       </header>
       <main id="main-content" class="main-content" tabindex="-1"><router-view /></main>
       <footer class="app-footer">CRM 客户关系管理系统 <span>让协作更顺畅，让关系更长久</span>
       </footer>
     </div>
-    <el-drawer v-model="drawer" direction="ltr" size="270px" class="nav-drawer" title="主导航">
+    <el-drawer v-model="drawer" direction="ltr" size="270px" class="nav-drawer" title="主导航" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft }">
       <template #header><BrandMark light /></template>
+      <div class="role-card">
+        <span class="role-card-icon"><AppIcon :name="identity.icon" /></span>
+        <div><strong>{{ identity.title }}工作空间</strong><small>{{ identity.focus }}</small></div>
+      </div>
       <AppNavigation @navigate="drawer = false" />
     </el-drawer>
   </div>
 </template>
 <style scoped>
+.header-account { display:flex; align-items:center; gap:18px; min-width:0; }
+.role-badge { display:flex; align-items:center; gap:7px; padding:7px 11px; border-radius:6px; color:var(--role-accent); background:var(--role-soft); font-size:12px; font-weight:600; white-space:nowrap; }
+.role-badge small { border-left:1px solid currentColor; padding-left:8px; font-weight:400; font-size:11px; }
+.role-card { margin:0 14px 12px; padding:12px; display:flex; align-items:center; gap:10px; background:var(--role-soft); color:var(--role-accent); border-radius:8px; }
+.role-card-icon { font-size:23px; display:flex; }
+.role-card strong { display:block; font-size:13px; }
+.role-card small { display:block; font-size:11px; margin-top:2px; }
 .app-shell {
   --sidebar-width: 232px;
   min-height: 100vh;
@@ -213,8 +235,8 @@ async function command(value) {
   border-radius: 6px;
 }
 .user-avatar {
-  background: #eaf0fe;
-  color: #245ee5;
+  background: var(--role-soft);
+  color: var(--role-accent);
   border: 1px solid #d7e3ff;
   height: 34px;
   width: 34px;
@@ -280,8 +302,13 @@ async function command(value) {
     padding: 0 16px;
   }
   .header-left {
-    gap: 10px;
+    gap: 6px;
+    min-width:0;
   }
+  .header-account { gap:8px; }
+  .role-badge { padding:5px 7px; font-size:11px; gap:4px; }
+  .role-badge small { display:none; }
+  .el-breadcrumb { font-size:11px; }
   .main-content {
     padding: 22px 18px;
   }

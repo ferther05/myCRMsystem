@@ -2,6 +2,7 @@
 <script setup>
 import {
   House,
+  Refresh,
   User,
   Connection,
   TrendCharts,
@@ -15,6 +16,7 @@ import {
 defineProps({ name: String });
 const icons = {
   House,
+  Refresh,
   User,
   Connection,
   TrendCharts,

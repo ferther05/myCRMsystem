@@ -1,5 +1,6 @@
-<!-- 文件作用：办理成交商机的合同登记、资料上传、核验和签署追踪。 -->
+<!-- 文件作用：嵌入商机管理的合同登记、签署核验、附件版本及回款工作区。 -->
 <script setup>
+import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -31,12 +32,13 @@ import {
   ElSteps,
   ElStep,
 } from 'element-plus';
-import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
 import * as api from '@/api/contracts';
 import { registrationErrors, registrationPayload } from '@/utils/contract-registration';
 
 const route = useRoute();
+const emit = defineEmits(['updated']);
+const detailTab = ref('progress');
 const rows = ref([]),
   total = ref(0),
   page = ref(1),
@@ -221,6 +223,7 @@ watch(
 );
 /** 加载所选记录详情并打开详情窗口。 */
 async function openDetail(rowOrId) {
+  detailTab.value = 'progress';
   detail.value = null;
   detailOpen.value = true;
   detailLoading.value = true;
@@ -469,6 +472,7 @@ async function registrationAction(row, mode) {
     const id = row.contractId || (await api.createContractFromOpportunity(row.opportunityId));
     const current = await api.getContract(id);
     detail.value = current;
+    detailTab.value = 'progress';
     detailOpen.value = true;
     detailLoading.value = false;
     await loadPayments();
@@ -669,28 +673,28 @@ async function download(item) {
     ElMessage.error(error.message || '下载失败');
   }
 }
-onMounted(
-  /* 页面挂载后加载初始数据。 */ async () => {
-    await load();
-    if (route.query.id) await openDetail(Number(route.query.id));
-  },
-);
+/** 在商机管理内打开待办或旧链接定位的合同；非法编号不发请求。 */
+async function openRouteContract() {
+  const id = route.query.contractId;
+  if (id && /^\d+$/.test(String(id))) await openDetail(Number(id));
+}
+watch(() => route.query.contractId, openRouteContract);
+watch(detailOpen, (open) => { if (!open) emit('updated'); });
+onMounted(async () => {
+  await load();
+  await openRouteContract();
+});
 </script>
 
 <template>
   <div>
-    <PageHeading
-      title="合同登记"
-      eyebrow="CONTRACT"
-      description="在线填写并提交合同登记表；核对通过后上传实际签署合同，核验最新版本并保留全部历史。"
-    />
     <el-tabs v-model="listMode">
       <el-tab-pane label="成交商单登记" name="registration" />
       <el-tab-pane label="已登记档案" name="archive" />
     </el-tabs>
     <el-alert
       v-if="listMode === 'registration'"
-      title="仅列出当前处于成交阶段的商机。请点击对应商单后的“登记信息”或“上传合同”；核验后赢单的合同可在“已登记档案”查询。"
+      title="仅列出当前处于成交阶段的商机。请点击对应商单后的“填写登记草稿”或“上传签署合同”；核验后赢单的合同可在“已登记档案”查询。"
       type="info"
       :closable="false"
       show-icon
@@ -738,16 +742,14 @@ onMounted(
         min-width="220"
       />
       <el-table-column v-else prop="contractName" label="合同名称" min-width="200" />
-      <el-table-column prop="customerName" label="客户" min-width="170" />
+      <el-table-column prop="customerName" label="客户" min-width="150" show-overflow-tooltip />
       <el-table-column label="所属负责人 / 团队" min-width="170">
         <template #default="{ row }">
           <div>{{ row.ownerName }}</div>
           <div class="scope-note">{{ row.teamName }}</div>
         </template>
       </el-table-column>
-      <el-table-column v-if="listMode === 'registration'" label="商机阶段" width="95">
-        <template #default><el-tag size="small" type="success">成交</el-tag></template>
-      </el-table-column>
+
       <el-table-column label="登记状态" width="120">
         <template #default="{ row }">
           <el-tag size="small">{{ statusLabels[row.contractStatus] || '未登记' }}</el-tag>
@@ -758,9 +760,7 @@ onMounted(
           {{ progressLabels[row.signingProgress] || '未开始' }}
         </template>
       </el-table-column>
-      <el-table-column label="内部合同编号" min-width="200">
-        <template #default="{ row }">{{ row.contractNo || '尚未创建登记' }}</template>
-      </el-table-column>
+
       <el-table-column
         :label="listMode === 'registration' ? '预计金额（元）' : '合同金额（元）'"
         align="right"
@@ -770,17 +770,9 @@ onMounted(
           {{ money(listMode === 'registration' ? row.expectedAmount : row.contractAmount) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" :width="listMode === 'registration' ? 235 : 150" fixed="right">
+      <el-table-column label="操作" :width="listMode === 'registration' ? 190 : 150" fixed="right">
         <template #default="{ row }">
           <template v-if="listMode === 'registration'">
-            <el-button
-              v-if="row.canUpload"
-              link
-              type="primary"
-              :disabled="acting"
-              @click="registrationAction(row, 'edit')"
-              >登记信息</el-button
-            >
             <el-button
               v-if="row.canUpload"
               link
@@ -828,7 +820,9 @@ onMounted(
           </div>
           <el-tag>{{ statusLabels[detail.contractStatus] }}</el-tag>
         </div>
-        <el-alert
+        <div class="detail-keyfacts"><div><span>合同金额</span><strong>¥ {{ money(detail.contractAmount) }}</strong></div><div><span>签署节点</span><strong>{{ progressLabels[detail.signingProgress] }}</strong></div><div><span>回款状态</span><strong>{{ payments ? ({ UNPAID:'待回款', PARTIAL:'部分到账', OVERDUE:'存在逾期', RECEIVED:'已收齐待签署', SETTLED:'已结清', TERMINATED:'终止无应收' }[payments.paymentStatus] || payments.paymentStatus) : '加载中' }}</strong></div></div>
+<el-tabs v-model="detailTab" class="detail-tabs"><el-tab-pane label="办理进度" name="progress">
+<details class="secondary-disclosure"><summary>登记与核验办理说明</summary>        <el-alert
           type="info"
           :closable="false"
           show-icon
@@ -837,6 +831,7 @@ onMounted(
         <p v-if="detail.canEdit" class="scope-note">
           草稿可先保存；提交登记核对前需补齐名称、业务类型、双方主体及联系人电话、金额和业务内容。实际签订日期可在签署后补填；最终文件核验通过且商机前序条件齐全后，系统自动推进赢单。
         </p>
+</details>
         <el-divider content-position="left">签署进度</el-divider>
         <el-alert
           v-if="detail.signingProgress === 'EXCEPTION'"
@@ -899,54 +894,52 @@ onMounted(
             >退回补充</el-button
           >
         </div>
-        <el-descriptions :column="1" border>
-          <el-descriptions-item label="内部编号">{{ detail.contractNo }}</el-descriptions-item>
-          <el-descriptions-item label="正式合同编号">
+</el-tab-pane><el-tab-pane label="登记资料" name="registration"><DetailSection title="合同标识与金额" emphasis><el-descriptions :column="1" border><el-descriptions-item label="内部编号">{{ detail.contractNo }}</el-descriptions-item>
+<el-descriptions-item label="正式合同编号">
             {{ detail.externalContractNo || '尚未登记' }}
           </el-descriptions-item>
-          <el-descriptions-item label="业务类型">
+<el-descriptions-item label="业务类型">
             {{ detail.businessType || '尚未登记' }}
           </el-descriptions-item>
-          <el-descriptions-item label="签约主体">
+<el-descriptions-item label="合同金额"
+            >¥ {{ money(detail.contractAmount) }}
+          </el-descriptions-item></el-descriptions></DetailSection>
+<DetailSection title="签约双方与联系人"><el-descriptions :column="1" border><el-descriptions-item label="签约主体">
             {{ detail.ourPartyName || '尚未登记' }} / {{ detail.counterpartyName || '尚未登记' }}
           </el-descriptions-item>
-          <el-descriptions-item label="合同金额"
-            >¥ {{ money(detail.contractAmount) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="签订日期 / 履行截止">
-            {{ detail.signedAt || '尚未登记' }} / {{ detail.expireDate || '尚未登记' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="我方联系人 / 电话"
+<el-descriptions-item label="我方联系人 / 电话"
             >{{ detail.ourContactName || '尚未填写' }} /
             {{ detail.ourContactPhone || '尚未填写' }}</el-descriptions-item
           >
-          <el-descriptions-item label="对方联系人 / 电话"
+<el-descriptions-item label="对方联系人 / 电话"
             >{{ detail.counterpartyContactName || '尚未填写' }} /
             {{ detail.counterpartyContactPhone || '尚未填写' }}</el-descriptions-item
           >
-          <el-descriptions-item label="我方地址 / 信用代码"
+<el-descriptions-item label="我方地址 / 信用代码"
             >{{ detail.ourAddress || '尚未填写' }} /
             {{ detail.ourCreditCode || '尚未填写' }}</el-descriptions-item
           >
-          <el-descriptions-item label="对方地址 / 信用代码"
+<el-descriptions-item label="对方地址 / 信用代码"
             >{{ detail.counterpartyAddress || '尚未填写' }} /
             {{ detail.counterpartyCreditCode || '尚未填写' }}</el-descriptions-item
-          >
-          <el-descriptions-item label="预计签订 / 履行开始"
+          ></el-descriptions></DetailSection>
+<DetailSection title="履行日期与业务约定"><el-descriptions :column="1" border><el-descriptions-item label="签订日期 / 履行截止">
+            {{ detail.signedAt || '尚未登记' }} / {{ detail.expireDate || '尚未登记' }}
+          </el-descriptions-item>
+<el-descriptions-item label="预计签订 / 履行开始"
             >{{ detail.plannedSignedAt || '尚未填写' }} /
             {{ detail.performanceStartDate || '尚未填写' }}</el-descriptions-item
           >
-          <el-descriptions-item label="付款约定">{{
+<el-descriptions-item label="付款约定">{{
             detail.paymentTerms || '尚未填写'
           }}</el-descriptions-item>
-          <el-descriptions-item label="交付或验收约定">{{
+<el-descriptions-item label="交付或验收约定">{{
             detail.deliveryTerms || '尚未填写'
           }}</el-descriptions-item>
-          <el-descriptions-item label="业务摘要">
+<el-descriptions-item label="业务摘要">
             {{ detail.description || '尚未填写' }}
-          </el-descriptions-item>
-        </el-descriptions>
-        <el-divider content-position="left">合同回款与结清</el-divider>
+          </el-descriptions-item></el-descriptions></DetailSection></el-tab-pane><el-tab-pane label="回款结清" name="payments">
+        <h3 class="detail-subtitle">回款总览</h3>
         <div v-loading="paymentLoading" class="payment-panel">
           <template v-if="payments">
             <div class="payment-summary">
@@ -965,7 +958,7 @@ onMounted(
               <el-button type="success" @click="reviewTermination(true)">批准终止</el-button>
               <el-button type="warning" @click="reviewTermination(false)">退回申请</el-button>
             </div>
-            <el-empty v-if="!payments.plans?.length" description="尚未建立回款计划" />
+            <DetailSection title="回款计划与期次" description="先审批计划，再按期次登记到账；历史版本保留。"><el-empty v-if="!payments.plans?.length" description="尚未建立回款计划" />
             <section v-for="plan in payments.plans" :key="plan.id" class="payment-plan">
               <div class="payment-plan-head">
                 <strong>第 {{ plan.versionNo }} 版计划</strong>
@@ -992,7 +985,7 @@ onMounted(
                 <el-table-column label="操作" width="105"><template #default="{ row }"><el-button v-if="plan.current && plan.approvalStatus === 'ACTIVE' && payments.canRegisterReceipt && row.outstandingAmount > 0" link type="primary" @click="openReceipt(row)">登记到账</el-button></template></el-table-column>
               </el-table>
             </section>
-            <el-divider content-position="left">到账记录</el-divider>
+            </DetailSection><DetailSection title="实际到账记录">
             <el-table :data="payments.receipts" size="small" empty-text="暂无到账记录">
               <el-table-column type="expand"><template #default="{ row }"><el-descriptions :column="1" border><el-descriptions-item label="计划 / 期次">{{ payments.plans.map(plan => { const period = plan.periods.find(item => item.id === row.periodId); return period ? `第${plan.versionNo}版 / 第${period.periodNo}期` : ''; }).filter(Boolean).join('') }}</el-descriptions-item><el-descriptions-item label="到账方式">{{ { BANK_TRANSFER: '银行转账', CASH: '现金', ONLINE: '线上支付', OTHER: '其他' }[row.paymentMethod] || '未填写' }}</el-descriptions-item><el-descriptions-item label="差异说明">{{ row.differenceDescription || '无' }}</el-descriptions-item><el-descriptions-item label="备注">{{ row.remark || '无' }}</el-descriptions-item><el-descriptions-item v-if="row.voided" label="作废人 / 时间">{{ row.voidedByName }} · {{ time(row.voidedAt) }}</el-descriptions-item></el-descriptions></template></el-table-column>
               <el-table-column label="到账金额" width="130"><template #default="{ row }">¥ {{ money(row.amount) }}</template></el-table-column>
@@ -1001,11 +994,11 @@ onMounted(
               <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.voided ? 'danger' : 'success'">{{ row.voided ? '已作废' : '有效' }}</el-tag></template></el-table-column>
               <el-table-column prop="voidReason" label="作废原因" min-width="140" />
               <el-table-column label="操作" width="90"><template #default="{ row }"><el-button v-if="payments.canVoidReceipt && !row.voided" link type="danger" @click="voidReceipt(row)">作废误录</el-button></template></el-table-column>
-            </el-table>
+            </el-table></DetailSection>
           </template>
           <el-empty v-else description="回款数据暂不可用" />
         </div>
-        <el-divider content-position="left">实际签署文件及历史版本</el-divider>
+</el-tab-pane><el-tab-pane label="文件版本" name="files"><DetailSection title="实际签署文件" description="以最新版本核验，历史版本保留可查。">
         <p class="scope-note">
           允许上传多个签署文件版本；核验最新一版，所有历史文件保留可查。合同登记表不要求草稿文件。
         </p>
@@ -1047,7 +1040,7 @@ onMounted(
             </el-table-column>
           </el-table>
         </PagedItems>
-        <el-divider content-position="left">签署进度历史</el-divider>
+</DetailSection></el-tab-pane><el-tab-pane label="历史记录" name="history"><DetailSection title="签署进度历史">
         <PagedItems :items="detail.signingHistory" v-slot="{ rows: pageRows }">
           <el-timeline>
             <el-timeline-item
@@ -1075,7 +1068,7 @@ onMounted(
           </el-timeline>
         </PagedItems>
         <el-empty v-if="!detail.signingHistory?.length" description="暂无签署进度历史" />
-        <el-divider content-position="left">合同操作记录</el-divider>
+</DetailSection><DetailSection title="合同操作记录">
         <PagedItems :items="detail.operationHistory" v-slot="{ rows: pageRows }">
           <el-timeline>
             <el-timeline-item
@@ -1088,7 +1081,7 @@ onMounted(
             </el-timeline-item>
           </el-timeline>
         </PagedItems>
-        <el-empty v-if="!detail.operationHistory?.length" description="暂无操作记录" />
+        <el-empty v-if="!detail.operationHistory?.length" description="暂无操作记录" /></DetailSection></el-tab-pane></el-tabs>
       </template>
     </el-drawer>
     <el-dialog v-model="paymentDialog" title="新建回款计划版本" width="min(760px, 94%)">

@@ -1,8 +1,9 @@
 <!-- 文件作用：管理或查询团队账号、角色、启停状态和密码重置。 -->
 <script setup>
+import DetailSection from '@/components/DetailSection.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { ElDialog, ElSelect, ElOption, ElMessage } from 'element-plus';
+import { ElDescriptions, ElDescriptionsItem, ElDialog, ElSelect, ElOption, ElMessage } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
 import { useAuthStore } from '@/store/auth';
@@ -20,6 +21,7 @@ const auth = useAuthStore();
 const router = useRouter();
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
 const rows = ref([]);
+const selectedAccount = ref(null);
 const teams = ref([]);
 const total = ref(0);
 const page = ref(1);
@@ -246,24 +248,7 @@ onMounted(load);
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="phone" label="联系电话" min-width="150" />
-      <el-table-column prop="email" label="邮箱" min-width="210" />
-      <el-table-column label="密码设置" min-width="120">
-        <template #default="{ row }">
-          {{ row.mustChangePassword ? '下次登录需改密' : '已设置' }}
-        </template>
-      </el-table-column>
-      <el-table-column v-if="admin" label="操作" min-width="200" fixed="right">
-        <template #default="{ row }">
-          <template v-if="row.id !== auth.user.id && row.accountStatus !== 'PENDING'">
-            <el-button link type="primary" @click="open('access', row)">角色与状态</el-button>
-            <el-button link type="primary" @click="open('reset', row)">重置密码</el-button>
-          </template>
-          <span v-else class="muted">
-            {{ row.id === auth.user.id ? '本人请用个人中心' : '请在审批中心处理' }}
-          </span>
-        </template>
-      </el-table-column>
+      <el-table-column label="操作" width="95" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="selectedAccount = row">详情</el-button></template></el-table-column>
     </DataTable>
     <p class="scope-note">
       {{
@@ -272,6 +257,11 @@ onMounted(load);
           : '团队范围由后端根据当前登录身份确定，修改网址或请求参数不能扩大范围。'
       }}
     </p>
+<el-drawer :model-value="Boolean(selectedAccount)" @close="selectedAccount = null" title="账号详情" size="min(620px, 100%)"><template v-if="selectedAccount">
+<DetailSection title="身份与归属" emphasis><el-descriptions :column="1" border><el-descriptions-item label="姓名 / 账号">{{ selectedAccount.realName }} / {{ selectedAccount.username }}</el-descriptions-item><el-descriptions-item label="角色">{{ ROLE_NAMES[selectedAccount.roleCode] }}</el-descriptions-item><el-descriptions-item label="所属团队">{{ selectedAccount.teamName || '系统管理' }}</el-descriptions-item><el-descriptions-item label="账号状态">{{ ACCOUNT_STATUS[selectedAccount.accountStatus] }}</el-descriptions-item></el-descriptions></DetailSection>
+<DetailSection title="联系资料"><el-descriptions :column="1" border><el-descriptions-item label="联系电话">{{ selectedAccount.phone || '未填写' }}</el-descriptions-item><el-descriptions-item label="邮箱">{{ selectedAccount.email || '未填写' }}</el-descriptions-item></el-descriptions></DetailSection>
+<DetailSection title="账号安全"><p>{{ selectedAccount.mustChangePassword ? '下次登录需修改初始密码' : '已完成密码设置' }}</p><div v-if="admin && selectedAccount.id !== auth.user.id && selectedAccount.accountStatus !== 'PENDING'" class="detail-actions"><el-button @click="open('access', selectedAccount); selectedAccount = null">角色与状态</el-button><el-button @click="open('reset', selectedAccount); selectedAccount = null">重置密码</el-button></div></DetailSection>
+</template></el-drawer>
     <el-dialog
       v-model="dialogOpen"
       :title="titles[dialog]"

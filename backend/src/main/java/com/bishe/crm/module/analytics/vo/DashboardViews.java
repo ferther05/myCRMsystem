@@ -14,5 +14,7 @@ public final class DashboardViews {
     public record Rank(Long ownerId,String ownerName,String teamName,long signedCount,BigDecimal signedAmount,BigDecimal receivedAmount,long wonCount) {}
     public record Conversion(long cohortCount,long dealCount,long wonCount,BigDecimal dealToWonRate,BigDecimal averageSigningDays) {}
     public record Action(String type,String title,long count,String target) {}
-    public record Result(LocalDate from,LocalDate to,String scope,LocalDateTime generatedAt,String source,Metrics metrics,List<Stage> stages,List<Trend> trends,List<Rank> ranking,Conversion conversion,List<Action> actions,long legacyContracts,long legacyReceipts) {}
+    public record ProcessQuality(List<StageDuration> stageDurations,long rollbackCount) {}
+    public record StageDuration(String code,String name,long opportunityCount,BigDecimal averageDays) {}
+    public record Result(LocalDate from,LocalDate to,String scope,LocalDateTime generatedAt,String source,Metrics metrics,List<Stage> stages,List<Trend> trends,List<Rank> ranking,Conversion conversion,List<Action> actions,long legacyContracts,long legacyReceipts,ProcessQuality processQuality) {}
 }

@@ -1,7 +1,9 @@
 <!-- 文件作用：商机列表、阶段门槛、业务证据、协作和合同登记入口。 -->
 <script setup>
+import ContractWorkspace from '@/components/ContractWorkspace.vue';
+import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   ElMessage,
@@ -34,6 +36,19 @@ const auth = useAuthStore();
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
 const router = useRouter();
 const route = useRoute();
+/** 商机与合同共用一个菜单，查询参数保留刷新及待办定位能力。 */
+const workspaceTab = computed({
+  get: () => route.query.view === 'contracts' ? 'contracts' : 'opportunities',
+  set: (view) => {
+    const { contractId, view: previousView, ...query } = route.query;
+    void router.replace({ path: '/opportunities', query: { ...query, ...(view === 'contracts' ? { view } : {}) } });
+  },
+});
+/** 合同处理后刷新商机阶段，避免显示已过时的成交/赢单信息。 */
+async function refreshContractOpportunity() {
+  await load();
+  if (detailOpen.value && detail.value) await openDetail(detail.value);
+}
 const rows = ref([]),
   total = ref(0),
   page = ref(1),
@@ -50,7 +65,14 @@ const detail = ref(null),
 const customers = ref([]),
   members = ref([]),
   customerLoading = ref(false),
-  tab = ref('overview');
+  tab = ref('stage');
+const followDetail = ref(null);
+const narrowDetail = ref(false);
+let detailMedia;
+/** 窄屏改为顶部分页导航，保留全部页面入口。 */
+function updateDetailViewport() { narrowDetail.value = detailMedia.matches; }
+onMounted(() => { detailMedia = window.matchMedia('(max-width: 700px)'); updateDetailViewport(); detailMedia.addEventListener('change', updateDetailViewport); });
+onUnmounted(() => detailMedia?.removeEventListener('change', updateDetailViewport));
 const form = reactive({});
 const owners = ref([]),
   customerPage = ref(1),
@@ -170,6 +192,7 @@ function search() {
 watch([page, size], load);
 /** 加载所选记录详情并打开详情窗口。 */
 async function openDetail(row) {
+  if (String(detail.value?.id) !== String(row.id) || !detailOpen.value) { tab.value = 'stage'; followDetail.value = null; }
   detailLoading.value = true;
   detailOpen.value = true;
   try {
@@ -376,7 +399,12 @@ async function removeCollaborator(row) {
     if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message);
   }
 }
-/** 由当前成交商机创建合同登记草稿并跳转。 */
+/** 从商机详情切入统一合同工作区。 */
+async function openContractWorkspace() {
+  detailOpen.value = false;
+  await router.push({ path: '/opportunities', query: { view: 'contracts' } });
+}
+/** 创建登记草稿并在同一商机管理入口继续办理合同。 */
 async function createContract() {
   try {
     await ElMessageBox.confirm(
@@ -386,7 +414,8 @@ async function createContract() {
     );
     const id = await contractApi.createContractFromOpportunity(detail.value.id);
     ElMessage.success('合同登记草稿已创建');
-    router.push({ path: '/contracts', query: { id } });
+    detailOpen.value = false;
+    await router.push({ path: '/opportunities', query: { view: 'contracts', contractId: id } });
   } catch (error) {
     if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message);
   }
@@ -436,6 +465,7 @@ async function reviewFollow(item, pass) {
       reviewStatus: pass ? 'CONFIRMED' : 'RETURNED',
       reviewReason: result.value.trim(),
     });
+    followDetail.value = null;
     await openDetail({ id: detail.value.id });
     await load();
     ElMessage.success(`核验已保存，当前阶段：${labels[detail.value.stageCode]}`);
@@ -461,16 +491,22 @@ onMounted(async () => {
   <div>
     <PageHeading title="商机管理" eyebrow="OPPORTUNITY">
       <el-button
-        v-if="auth.user?.roleCode === 'ADMIN'"
+        v-if="workspaceTab === 'opportunities' && auth.user?.roleCode === 'ADMIN'"
         :icon="Clock"
         :disabled="loading"
         @click="scan"
         >活跃度扫描</el-button
       >
-      <el-button v-if="admin" type="primary" :icon="Plus" @click="openDialog('create')"
+      <el-button v-if="workspaceTab === 'opportunities' && admin" type="primary" :icon="Plus" @click="openDialog('create')"
         >新建商机</el-button
       >
     </PageHeading>
+    <el-tabs v-model="workspaceTab" aria-label="商机业务分类">
+      <el-tab-pane label="商机列表" name="opportunities" />
+      <el-tab-pane label="合同与回款" name="contracts" />
+    </el-tabs>
+    <ContractWorkspace v-if="workspaceTab === 'contracts'" @updated="refreshContractOpportunity" />
+    <div v-show="workspaceTab === 'opportunities'">
     <form class="panel toolbar" @submit.prevent="search">
       <el-input
         v-model="filters.keyword"
@@ -507,8 +543,8 @@ onMounted(async () => {
       v-model:page="page"
       @retry="load"
     >
-      <el-table-column prop="opportunityName" label="商机名称" min-width="190" />
-      <el-table-column prop="customerName" label="客户" min-width="150" />
+      <el-table-column label="商机 / 客户" min-width="220"><template #default="{ row }"><strong>{{ row.opportunityName }}</strong><div class="muted">{{ row.customerName }}</div></template></el-table-column>
+
       <el-table-column label="所属负责人 / 团队" min-width="170">
         <template #default="{ row }">
           <div>{{ row.ownerName }}</div>
@@ -539,15 +575,16 @@ onMounted(async () => {
       <el-table-column label="预计金额（元）" align="right" min-width="140">
         <template #default="{ row }">{{ money(row.expectedAmount) }}</template>
       </el-table-column>
-      <el-table-column prop="expectedCloseDate" label="预计成交日" width="125" />
+
       <el-table-column label="操作" width="80" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
         </template>
       </el-table-column>
     </DataTable>
+    </div>
 
-    <el-drawer v-model="detailOpen" title="商机详情" size="min(860px, 100%)">
+    <el-drawer v-model="detailOpen" title="商机详情" size="min(1120px, 100%)" class="opportunity-detail-drawer">
       <div v-if="detailLoading" v-loading="true" class="loading" />
       <template v-else-if="detail">
         <div class="detail-head">
@@ -559,13 +596,12 @@ onMounted(async () => {
               }}
             </p>
           </div>
-          <el-tag>{{ labels[detail.stageCode] }}</el-tag>
+          <el-tag effect="dark">{{ labels[detail.stageCode] }}</el-tag>
         </div>
-        <section class="stage-panel" aria-label="商机阶段与推进要求">
-          <div class="stage-title">
-            <strong>当前阶段：{{ labels[detail.stageCode] }}</strong>
-            <span>业务记录满足要求后，系统自动推进</span>
-          </div>
+        <el-tabs v-model="tab" class="opportunity-pages" :tab-position="narrowDetail ? 'top' : 'left'">
+          <el-tab-pane name="stage" label="阶段推进">
+            <section class="stage-panel" aria-label="商机阶段与推进要求">
+              <div class="stage-title"><strong>当前阶段：{{ labels[detail.stageCode] }}</strong><span>满足条件后自动推进</span></div>
           <ol class="stage-track">
             <li
               v-for="stage in mainStages"
@@ -580,7 +616,76 @@ onMounted(async () => {
               </span>
             </li>
           </ol>
-          <div class="terminal-stages">
+
+              <template v-if="currentProgress?.nextStage">
+                <h3>下一阶段：{{ currentProgress.nextStageName }}</h3>
+                <ul class="stage-requirements compact-requirements">
+                  <li v-for="requirement in currentProgress.requirements" :key="requirement.code">
+                    <el-tag size="small" :type="requirement.met ? 'success' : 'warning'">{{ requirement.met ? '已完成' : '未完成' }}</el-tag>
+                    <div><strong>{{ requirement.label }}</strong><el-button v-if="requirement.code === 'CUSTOMER_CONFIRMATION' && !requirement.met && detail.canEdit && active && ['QUOTED', 'DEAL'].includes(detail.stageCode)" class="requirement-shortcut" link type="primary" @click="openDialog('CONFIRMATION')">登记合作确认</el-button><details v-if="requirement.action"><summary>要求说明</summary><p>{{ requirement.action }}</p></details></div>
+                    <el-button v-if="requirement.code === 'QUOTE' && !requirement.met && detail.canEdit && active && detail.stageCode !== 'NEW'" link type="primary" @click="openDialog('QUOTE')">录入报价</el-button>
+                  </li>
+                </ul>
+                <p class="scope-note">推进需要本阶段、本轮经核验通过的有效跟进。</p>
+              </template>
+              <el-empty v-else :image-size="48" description="当前阶段无需继续推进；业务历史仍可查询" />
+              <el-alert v-if="currentProgress?.ready" title="条件已满足，下次相关业务保存时系统核对并推进。" type="info" :closable="false" />
+            </section>
+            <div class="actions"><el-button v-if="active" type="primary" :icon="Plus" @click="openDialog('follow')">新增跟进</el-button><el-button @click="tab = 'evidence'">报价与合作确认</el-button><el-button @click="tab = 'follow'">查看跟进与核验</el-button></div>
+            <el-alert v-if="detail.activityStatus === 'CLOSE_PENDING'" title="待关闭裁决中，客户继续受保护；请在规则与管理页处理。" type="warning" :closable="false" />
+          </el-tab-pane>
+
+          <el-tab-pane name="overview" label="业务资料">
+<DetailSection title="业务概况" emphasis><el-descriptions :column="1" border><el-descriptions-item label="阶段 / 活跃度">
+                {{ labels[detail.stageCode] }} / {{ activityLabels[detail.activityStatus] }}
+              </el-descriptions-item>
+<el-descriptions-item label="预计合同总额"
+                >¥ {{ money(detail.expectedAmount) }}
+              </el-descriptions-item>
+<el-descriptions-item label="预计成交日期">
+                {{ detail.expectedCloseDate || '尚未补录' }}
+              </el-descriptions-item></el-descriptions></DetailSection>
+<div class="actions"><el-button v-if="detail.canEdit && active" :icon="Edit" @click="openDialog('edit')">编辑业务资料</el-button></div>
+          </el-tab-pane>
+          <el-tab-pane name="evidence" label="报价与确认">
+            <div class="evidence-grid">
+              <section class="evidence-card"><span class="evidence-step">01 · 报价登记</span><h3>{{ detail.quoteAt ? '已登记报价' : '尚未登记报价' }}</h3><strong class="evidence-value">{{ detail.quoteAt ? '¥ ' + money(detail.quoteAmount) : '待填写金额及说明' }}</strong><p>{{ detail.quoteAt ? time(detail.quoteAt) : '填写正式报价金额与说明，预计金额不代替报价。' }}</p><el-button v-if="detail.canEdit && active && detail.stageCode !== 'NEW'" type="primary" @click="openDialog('QUOTE')">{{ detail.quoteAt ? '更新报价' : '录入报价' }}</el-button><span v-else class="scope-note">{{ detail.stageCode === 'NEW' ? '进入跟进阶段后可登记' : '当前仅可查看' }}</span></section>
+              <section class="evidence-card"><span class="evidence-step">02 · 合作确认</span><h3>{{ detail.customerConfirmAt ? '已登记合作确认' : '等待客户明确合作' }}</h3><p>{{ detail.customerConfirmAt ? time(detail.customerConfirmAt) : '客户明确合作后登记确认；系统仍会检查跟进核验等条件。' }}</p><el-button v-if="detail.canEdit && active && ['QUOTED', 'DEAL'].includes(detail.stageCode)" type="primary" plain @click="openDialog('CONFIRMATION')">{{ detail.customerConfirmAt ? '更新合作确认' : '登记合作确认' }}</el-button><span v-else class="scope-note">{{ active ? '报价阶段起可登记' : '当前仅可查看' }}</span></section>
+            </div>
+            <DetailSection v-if="['DEAL','WON'].includes(detail.stageCode)" title="合同与回款"><p class="scope-note">合同登记、文件核验与回款均在商机管理内办理。</p><div class="actions"><el-button v-if="detail.canEdit && detail.stageCode === 'DEAL'" @click="createContract">创建合同登记</el-button><el-button @click="openContractWorkspace">查看合同与回款</el-button></div></DetailSection>
+          </el-tab-pane>
+          <el-tab-pane name="collaboration" label="协作成员">
+            <div class="actions"><el-button v-if="detail.canManageCollaborators && active" type="primary" :icon="UserFilled" @click="openDialog('collaborator')">添加协作人</el-button></div>
+            <DetailSection title="协作成员与分工">
+            <PagedItems :items="detail.collaborators" v-slot="{ rows: pageRows }">
+              <el-table :data="pageRows" empty-text="暂无协作人">
+                <el-table-column prop="realName" label="姓名" />
+                <el-table-column label="分成比例">
+                  <template #default="{ row }">{{ row.splitRatio }}%</template>
+                </el-table-column>
+                <el-table-column
+                  v-if="detail.canManageCollaborators && active"
+                  label="操作"
+                  width="80"
+                >
+                  <template #default="{ row }">
+                    <el-button link type="danger" @click="removeCollaborator(row)">移除</el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </PagedItems></DetailSection>
+          </el-tab-pane>
+          <el-tab-pane name="rules" label="规则与管理">
+<DetailSection title="活跃与停滞规则"><el-descriptions :column="1" border><el-descriptions-item label="停滞阈值">
+                {{ detail.stagnationDays }} 天 + 宽限
+                {{ detail.graceDays }} 天</el-descriptions-item
+              >
+<el-descriptions-item label="最近有效推进">
+                {{ time(detail.lastEffectiveProgressAt) }}
+              </el-descriptions-item></el-descriptions></DetailSection>
+<div class="actions" v-if="active"><el-button v-if="detail.canSetThreshold" :icon="Clock" @click="openDialog('threshold')">调整停滞阈值</el-button><el-button v-if="detail.canChangeStage" @click="openDialog('stage')">管理员修正阶段</el-button><el-button v-if="detail.canDecidePending" type="warning" @click="openDialog('decision')">待关闭裁决</el-button></div>
+<p class="scope-note">待查验跟进仅暂时刷新活跃计时；打回后撤销有效性并重算，历史保留。</p>
+          <details class="secondary-disclosure"><summary>结束分支与管理员修正规则</summary><div class="terminal-stages">
             <span>结束分支：</span>
             <el-tag
               v-for="stage in terminalStages"
@@ -592,50 +697,7 @@ onMounted(async () => {
             </el-tag>
             <span>仅管理员可修正为输单／关闭，须填写原因并通过合同与回款校验</span>
           </div>
-          <p class="stage-description">{{ currentProgress?.description }}</p>
-          <template v-if="currentProgress?.nextStage">
-            <h3>距下一阶段「{{ currentProgress.nextStageName }}」的必需要求</h3>
-            <ul class="stage-requirements">
-              <li v-for="requirement in currentProgress.requirements" :key="requirement.code">
-                <el-tag size="small" :type="requirement.met ? 'success' : 'warning'">
-                  {{ requirement.met ? '已完成' : '未完成' }}
-                </el-tag>
-                <div>
-                  <strong>{{ requirement.label }}</strong>
-                  <p>{{ requirement.action }}</p>
-                  <p v-if="requirement.code === 'QUOTE' && !requirement.met">
-                    请使用下方「录入报价」填写金额和报价说明；编辑预计合同总额或填写跟进内容不会登记报价。
-                  </p>
-                  <el-button
-                    v-if="
-                      requirement.code === 'QUOTE' &&
-                      !requirement.met &&
-                      detail.canEdit &&
-                      active &&
-                      detail.stageCode !== 'NEW'
-                    "
-                    type="primary"
-                    size="small"
-                    @click="openDialog('QUOTE')"
-                    >去录入报价</el-button
-                  >
-                </div>
-              </li>
-            </ul>
-            <el-alert
-              v-if="currentProgress.ready"
-              title="必需条件已满足；下一次相关业务记录成功保存时，系统自动核对并推进。已有数据不会因查询而改阶段。"
-              type="info"
-              :closable="false"
-            />
-            <p class="stage-note">
-              待查验跟进仅暂时刷新活跃计时；阶段推进必须有本商机当前阶段、本轮已核验通过的有效跟进。打回后撤销有效性并重算计时，历史保留。
-            </p>
-          </template>
-          <p v-else class="stage-note">
-            当前已处于结束阶段；保留业务历史，不再自动推进。赢单后的履约及回款仍需继续处理。
-          </p>
-          <details class="all-stage-rules">
+          </details>          <details class="all-stage-rules">
             <summary>查看所有阶段的必需要求及完成情况</summary>
             <article
               v-for="stage in mainStages.filter(
@@ -657,109 +719,36 @@ onMounted(async () => {
               </ul>
             </article>
           </details>
-        </section>
-        <el-alert
-          v-if="detail.activityStatus === 'CLOSE_PENDING'"
-          title="待关闭裁决中，继续保持客户回收保护"
-          type="warning"
-          :closable="false"
-          show-icon
-        />
-        <div class="actions" v-if="active">
-          <el-button v-if="detail.canEdit" :icon="Edit" @click="openDialog('edit')">编辑</el-button>
-          <el-button
-            v-if="detail.canEdit && detail.stageCode !== 'NEW'"
-            type="primary"
-            :icon="Document"
-            @click="openDialog('QUOTE')"
-            >录入报价</el-button
-          >
-          <el-button
-            v-if="detail.canEdit && ['QUOTED', 'DEAL'].includes(detail.stageCode)"
-            :icon="Document"
-            @click="openDialog('CONFIRMATION')"
-            >客户合作确认</el-button
-          >
-          <el-button v-if="detail.canChangeStage" @click="openDialog('stage')"
-            >管理员修正阶段</el-button
-          >
-          <el-button
-            v-if="detail.canEdit && detail.stageCode === 'DEAL'"
-            :icon="Document"
-            @click="createContract"
-            >创建合同登记</el-button
-          >
-          <el-button v-if="active" :icon="Plus" @click="openDialog('follow')">跟进</el-button>
-          <el-button v-if="detail.canSetThreshold" :icon="Clock" @click="openDialog('threshold')"
-            >停滞阈值</el-button
-          >
-          <el-button
-            v-if="detail.canManageCollaborators"
-            :icon="UserFilled"
-            @click="openDialog('collaborator')"
-            >协作人</el-button
-          >
-          <el-button v-if="detail.canDecidePending" type="warning" @click="openDialog('decision')"
-            >待关闭裁决</el-button
-          >
-        </div>
-        <el-tabs v-model="tab">
-          <el-tab-pane name="overview" label="概览与资料">
-            <el-descriptions :column="1" border>
-              <el-descriptions-item label="阶段 / 活跃度">
-                {{ labels[detail.stageCode] }} / {{ activityLabels[detail.activityStatus] }}
-              </el-descriptions-item>
-              <el-descriptions-item label="预计合同总额"
-                >¥ {{ money(detail.expectedAmount) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="预计成交日期">
-                {{ detail.expectedCloseDate || '尚未补录' }}
-              </el-descriptions-item>
-              <el-descriptions-item label="停滞阈值">
-                {{ detail.stagnationDays }} 天 + 宽限
-                {{ detail.graceDays }} 天</el-descriptions-item
-              >
-              <el-descriptions-item label="最近有效推进">
-                {{ time(detail.lastEffectiveProgressAt) }}
-              </el-descriptions-item>
-              <el-descriptions-item label="报价">
-                {{
-                  detail.quoteAt
-                    ? `¥ ${money(detail.quoteAmount)} · ${time(detail.quoteAt)}`
-                    : '暂无报价记录'
-                }}
-              </el-descriptions-item>
-              <el-descriptions-item label="客户确认">
-                {{ detail.customerConfirmAt ? time(detail.customerConfirmAt) : '暂无合作确认' }}
-              </el-descriptions-item>
-            </el-descriptions>
-            <el-divider content-position="left">协作人</el-divider>
-            <PagedItems :items="detail.collaborators" v-slot="{ rows: pageRows }">
-              <el-table :data="pageRows" empty-text="暂无协作人">
-                <el-table-column prop="realName" label="姓名" />
-                <el-table-column label="分成比例">
-                  <template #default="{ row }">{{ row.splitRatio }}%</template>
-                </el-table-column>
-                <el-table-column
-                  v-if="detail.canManageCollaborators && active"
-                  label="操作"
-                  width="80"
-                >
-                  <template #default="{ row }">
-                    <el-button link type="danger" @click="removeCollaborator(row)">移除</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </PagedItems>
           </el-tab-pane>
-          <el-tab-pane name="follow" label="商机跟进">
-            <PagedItems :items="detail.followRecords" v-slot="{ rows: pageRows }">
+          <el-tab-pane name="follow" label="跟进与核验">
+            <div class="actions"><el-button v-if="active" type="primary" :icon="Plus" @click="openDialog('follow')">新增跟进</el-button></div>
+            <PagedItems :items="detail.followRecords" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无商机跟进"><el-table-column label="沟通结果" min-width="140"><template #default="{ row }">{{ resultLabels[row.resultCode] || row.resultCode }}</template></el-table-column><el-table-column prop="followUserName" label="跟进人" width="110"/><el-table-column label="核验" width="95"><template #default="{ row }"><el-tag size="small" :type="row.reviewStatus === 'CONFIRMED' ? 'success' : row.reviewStatus === 'RETURNED' ? 'warning' : 'info'">{{ reviewLabels[row.reviewStatus] }}</el-tag></template></el-table-column><el-table-column label="跟进时间" min-width="165"><template #default="{ row }">{{ time(row.followedAt) }}</template></el-table-column><el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="followDetail = row">{{ canReviewFollow(row) ? '详情 / 核验' : '详情' }}</el-button></template></el-table-column></el-table></PagedItems>
+          </el-tab-pane>
+          <el-tab-pane name="history" label="阶段历史"><PagedItems :items="detail.stageHistory" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无阶段历史"><el-table-column label="阶段变化" min-width="150"><template #default="{ row }">{{ labels[row.fromStage] || '创建' }} → {{ labels[row.toStage] }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip/><el-table-column prop="operatorName" label="操作人" width="110"/><el-table-column label="时间" min-width="165"><template #default="{ row }">{{ time(row.occurredAt) }}</template></el-table-column></el-table></PagedItems></el-tab-pane>
+          <el-tab-pane v-if="detail.canEdit" name="audit" label="操作记录">
+            <PagedItems :items="detail.operationHistory" v-slot="{ rows: pageRows }">
               <el-timeline>
                 <el-timeline-item
                   v-for="item in pageRows"
                   :key="item.id"
-                  :timestamp="time(item.followedAt)"
+                  :timestamp="time(item.occurredAt)"
                 >
+                  <strong>{{ item.reason || item.actionCode }}</strong>
+                  <p>操作人：{{ item.operatorName || '系统任务' }}</p>
+                  <details>
+                    <summary>变更明细</summary>
+                    <pre>{{ item.beforeJson }}</pre>
+                    <pre>{{ item.afterJson }}</pre>
+                  </details>
+                </el-timeline-item>
+              </el-timeline>
+            </PagedItems>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+    </el-drawer>
+
+    <el-dialog :model-value="Boolean(followDetail)" @close="followDetail = null" title="商机跟进详情" width="min(700px, 94%)"><template v-if="followDetail"><template v-for="item in [followDetail]" :key="item.id">
                   <article class="follow-card">
                     <div class="follow-title">
                       <strong>{{ resultLabels[item.resultCode] || item.resultCode }}</strong>
@@ -808,49 +797,7 @@ onMounted(async () => {
                       >
                     </div>
                   </article>
-                </el-timeline-item>
-              </el-timeline>
-            </PagedItems>
-            <el-empty v-if="!detail.followRecords?.length" description="暂无商机跟进" />
-          </el-tab-pane>
-          <el-tab-pane name="history" label="阶段历史">
-            <PagedItems :items="detail.stageHistory" v-slot="{ rows: pageRows }">
-              <el-timeline>
-                <el-timeline-item
-                  v-for="item in pageRows"
-                  :key="item.id"
-                  :timestamp="time(item.occurredAt)"
-                >
-                  <strong>
-                    {{ labels[item.fromStage] || '创建' }} → {{ labels[item.toStage] }}
-                  </strong>
-                  <p>{{ item.reason || '阶段推进' }} · {{ item.operatorName }}</p>
-                </el-timeline-item>
-              </el-timeline>
-            </PagedItems>
-          </el-tab-pane>
-          <el-tab-pane v-if="detail.canEdit" name="audit" label="操作记录">
-            <PagedItems :items="detail.operationHistory" v-slot="{ rows: pageRows }">
-              <el-timeline>
-                <el-timeline-item
-                  v-for="item in pageRows"
-                  :key="item.id"
-                  :timestamp="time(item.occurredAt)"
-                >
-                  <strong>{{ item.reason || item.actionCode }}</strong>
-                  <p>操作人：{{ item.operatorName || '系统任务' }}</p>
-                  <details>
-                    <summary>变更明细</summary>
-                    <pre>{{ item.beforeJson }}</pre>
-                    <pre>{{ item.afterJson }}</pre>
-                  </details>
-                </el-timeline-item>
-              </el-timeline>
-            </PagedItems>
-          </el-tab-pane>
-        </el-tabs>
-      </template>
-    </el-drawer>
+</template></template></el-dialog>
 
     <el-dialog
       :model-value="Boolean(dialog)"
@@ -1339,5 +1286,41 @@ pre {
   display: flex;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* 详情采用独立短页；导航固定，仅超长内容在当前页内滚动。 */
+:global(.opportunity-detail-drawer .el-drawer__header) { margin-bottom: 0; padding: 16px 22px 8px; }
+:global(.opportunity-detail-drawer .el-drawer__body) { display: flex; flex-direction: column; overflow: hidden; padding: 12px 22px 20px; }
+.opportunity-pages { flex: 1; min-height: 0; display: flex; }
+.opportunity-pages :deep(.el-tabs__header) { flex-shrink: 0; }
+.opportunity-pages :deep(.el-tabs__item) { justify-content: flex-start; height: 44px; padding: 0 18px; }
+.opportunity-pages :deep(.el-tabs__content) { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 12px 18px; }
+.opportunity-pages :deep(.el-tab-pane) { min-width: 0; }
+.opportunity-pages .stage-panel { margin: 0; padding: 12px; }
+.opportunity-pages .stage-panel h3 { margin: 10px 0; }
+.opportunity-pages .actions { margin: 10px 0; }
+.opportunity-pages .stage-track { margin: 10px 0; }
+.opportunity-pages .stage-track li { padding: 6px 4px; gap: 3px; }
+.opportunity-pages .stage-number { width: 20px; height: 20px; }
+.compact-requirements { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 10px 0; }
+.compact-requirements li { background: #fff; padding: 10px; border: 1px solid #e4e9f0; border-radius: 6px; }
+.compact-requirements li > div { flex: 1; min-width: 0; }
+.compact-requirements details { font-size: 12px; color: #53647c; margin-top: 4px; }
+.compact-requirements summary { cursor: pointer; }
+.requirement-shortcut { height: 18px; font-size: 12px; padding: 0; margin-left: 8px; }
+.evidence-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.evidence-card { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; border: 1px solid #dce5f1; border-radius: 10px; padding: 22px; background: #fafcff; }
+.evidence-card h3, .evidence-card p { margin: 0; }
+.evidence-card p { font-size: 13px; color: #53647c; line-height: 1.7; flex: 1; }
+.evidence-step { font-size: 12px; color: #53647c; }
+.evidence-value { font-size: 20px; color: #243b5a; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  :global(.opportunity-detail-drawer .el-drawer__body) { padding: 10px 12px 14px; }
+  .opportunity-pages { flex-direction: column; }
+  .opportunity-pages :deep(.el-tabs__content) { padding: 4px 2px 10px; }
+  .opportunity-pages :deep(.el-tabs__item) { height: 40px; padding: 0 12px; }
+  .evidence-grid, .compact-requirements { grid-template-columns: 1fr; gap: 10px; }
+  .evidence-card { padding: 16px; }
+  .detail-head h2 { font-size: 17px; }
 }
 </style>

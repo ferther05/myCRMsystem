@@ -26,8 +26,6 @@ const moduleViews = {
   '/opportunities': () => import('@/views/opportunity/OpportunitiesView.vue'),
   /** 按需加载业务页面组件。 */
   '/analytics': () => import('@/views/analytics/AnalyticsView.vue'),
-  /** 按需加载业务页面组件。 */
-  '/contracts': () => import('@/views/contract/ContractsView.vue'),
 };
 
 const router = createRouter({
@@ -50,6 +48,11 @@ const router = createRouter({
       /* 按需加载目标页面组件。 */ component: () => import('@/layouts/AppLayout.vue'),
       children: [
         { path: '', redirect: '/workbench' },
+        // 兼容旧收藏、看板和待办中的合同链接，统一进入商机管理。
+        { path: 'contracts', redirect: (to) => {
+          const { id, ...query } = to.query;
+          return { path: '/opportunities', query: { ...query, view: 'contracts', ...(id ? { contractId: id } : {}) } };
+        } },
         ...modules.map(
           /* 按需加载业务页面组件。 */ (item) => ({
             path: item.path.slice(1),

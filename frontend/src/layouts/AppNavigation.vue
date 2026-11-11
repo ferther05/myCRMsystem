@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
 import { modules, canVisit } from '@/router/modules';
+import { pagePresentation } from '@/utils/page-presentation';
 import AppIcon from '@/components/AppIcon.vue';
 const props = defineProps({ compact: Boolean });
 const emit = defineEmits(['navigate']);
@@ -35,7 +36,7 @@ const groups = computed(
     >
       <template v-for="group in groups" :key="group.title">
         <div v-if="!compact" class="nav-group">{{ group.title }}</div>
-        <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+        <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path" :style="{ '--nav-accent': pagePresentation(item.path).color, '--nav-soft': pagePresentation(item.path).soft }">
           <AppIcon :name="item.icon" />
           <template #title>
             <span>{{ item.title }}</span>
@@ -73,7 +74,10 @@ const groups = computed(
   font-size: 13px;
 }
 .el-menu-item.is-active {
-  background: #245ee5;
+  background: var(--nav-soft);
+  color: var(--nav-accent);
+  box-shadow: inset 3px 0 var(--nav-accent);
+  font-weight:600;
 }
 .el-menu-item .el-icon {
   font-size: 18px;
