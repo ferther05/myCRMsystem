@@ -1,5 +1,6 @@
 <!-- 文件作用：三角色共用销售看板，区分当前存量与期间业绩。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElSelect, ElOption, ElEmpty, ElCollapse, ElCollapseItem } from 'element-plus';
@@ -27,8 +28,9 @@ function periodChanged() {
 }
 /** 新查询清空旧范围结果，只接收最新响应。 */
 async function load(refresh = false) {
-  if (!filters.from || !filters.to || filters.from > filters.to) { failure.value = '请选择正确的开始和结束日期'; return; }
-  const current = ++generation; loading.value = true; failure.value = ''; data.value = null;
+  const current = ++generation;
+  if (!filters.from || !filters.to || filters.from > filters.to) { failure.value = '请选择正确的开始和结束日期'; data.value = null; loading.value = false; return; }
+  loading.value = true; failure.value = ''; data.value = null;
   try {
     const result = await api.overview({ from: filters.from, to: filters.to, ownerId: filters.ownerId || undefined, refresh });
     if (current !== generation) return;
@@ -36,6 +38,10 @@ async function load(refresh = false) {
   } catch (e) { if (current === generation) failure.value = e.message; }
   finally { if (current === generation) loading.value = false; }
 }
+periodChanged();
+useAutoQuery({ filters: () => ({ ...filters }), load,
+  invalidate: () => { ++generation; data.value = null; loading.value = true; },
+});
 const cards = computed(() => data.value ? [
   { title: '当前私海客户', value: data.value.metrics.customerCount, unit: '位', note: '当前归属范围，含全部创建时间' },
   { title: '当前在办商机', value: data.value.metrics.openOpportunities, unit: '个', note: '不含赢单、输单、关闭' },
@@ -50,7 +56,7 @@ const rankingChart = computed(() => {
   const rows = (data.value?.ranking || []).slice(0, 10).reverse();
   return { color: ['#2563eb', '#0d9488'], tooltip: { trigger: 'axis' }, legend: { top: 0 }, grid: { left: 12, right: 20, top: 38, bottom: 12, containLabel: true }, xAxis: { type: 'value', name: '元' }, yAxis: { type: 'category', data: rows.map((r) => r.ownerName) }, series: [{ name: '核验签约', type: 'bar', barMaxWidth: 18, data: rows.map((r) => Number(r.signedAmount)) }, { name: '实际到账', type: 'bar', barMaxWidth: 18, data: rows.map((r) => Number(r.receivedAmount)) }] };
 });
-onMounted(async () => { periodChanged(); try { owners.value = await api.owners(); } catch (e) { failure.value = e.message; return; } await load(); });
+onMounted(async () => { try { owners.value = await api.owners(); } catch (e) { failure.value = e.message; return; } await load(); });
 </script>
 <template>
   <div class="analytics">
@@ -59,7 +65,7 @@ onMounted(async () => { periodChanged(); try { owners.value = await api.owners()
       <el-select v-model="filters.period" aria-label="统计时间" @change="periodChanged"><el-option label="今天" value="today" /><el-option label="本周" value="week" /><el-option label="本月" value="month" /><el-option label="本季度" value="quarter" /><el-option label="本年" value="year" /><el-option label="自定义" value="custom" /></el-select>
       <label>开始日期<input v-model="filters.from" type="date" :max="date(new Date())" required @change="filters.period = 'custom'" /></label><label>结束日期<input v-model="filters.to" type="date" :max="date(new Date())" required @change="filters.period = 'custom'" /></label>
       <el-select v-model="filters.ownerId" aria-label="负责人" placeholder="全部负责人" clearable filterable><el-option v-for="owner in owners" :key="owner.id" :value="owner.id" :label="`${owner.name} · ${owner.teamName}`" /></el-select>
-      <el-button type="primary" native-type="submit" :loading="loading">查询</el-button><el-button :disabled="loading" @click="load(true)">刷新最新数据</el-button>
+      <span class="auto-query-note">自动筛选</span><el-button :disabled="loading" @click="load(true)">刷新最新数据</el-button>
     </form>
     <el-alert v-if="failure" :title="failure" type="error" :closable="false" show-icon /><el-button v-if="failure" @click="load(true)">重试</el-button>
     <div v-loading="loading" class="dashboard-content"><template v-if="data">
@@ -78,7 +84,7 @@ onMounted(async () => { periodChanged(); try { owners.value = await api.owners()
   </div>
 </template>
 <style scoped>
-.filters { display:flex; align-items:center; gap:12px; flex-wrap:wrap; padding:18px; margin-bottom:18px; }.filters .el-select { width:150px; }.filters .el-select:nth-of-type(2) { width:220px; }.filters label { display:flex; gap:8px; align-items:center; font-size:13px; color:var(--crm-text-secondary); }.filters input { border:1px solid var(--crm-border); border-radius:4px; padding:7px; min-width:0; background:white; color:var(--crm-text-main); }
+.filters { display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:20px; margin-bottom:18px; }.filters .el-select { width:150px; }.filters .el-select:nth-of-type(2) { width:220px; }.filters label { display:flex; gap:8px; align-items:center; font-size:13px; color:var(--crm-text-secondary); }.filters input { border:1px solid var(--crm-border); border-radius:4px; padding:7px; min-width:0; background:white; color:var(--crm-text-main); }
 .range-note,.muted { color:var(--crm-text-secondary); font-size:13px; line-height:1.7; }.metric-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin-bottom:18px; }.metric { padding:20px; min-width:0; }.metric>span { font-size:13px; color:var(--crm-text-secondary); }.metric strong { font-size:clamp(21px,2vw,29px); font-weight:600; overflow-wrap:anywhere; }.metric small { margin-left:7px; color:var(--crm-text-secondary); }.metric p { font-size:12px; color:var(--crm-text-secondary); margin:8px 0 0; line-height:1.6; }
 .chart-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); gap:18px; margin-top:18px; }.section { padding:20px; margin-bottom:18px; min-width:0; }.section h2 { margin:0 0 8px; font-size:15px; }.funnel { max-width:480px; margin:auto; }.stage-list,.conversion-values,.action-grid { display:flex; flex-wrap:wrap; gap:14px; font-size:13px; }.stage-list { justify-content:center; color:var(--crm-text-secondary); }.conversion-values b { margin-left:8px; font-size:17px; color:var(--crm-text-main); }.conversion-values { gap:20px; }.action-grid .el-button { margin:0; }.business-links { display:flex; flex-wrap:wrap; align-items:center; gap:12px; font-size:13px; }.dashboard-content { min-height:180px; }
 .process-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(150px,.5fr); gap:20px; align-items:center; }.process-grid h3 { margin:8px 0 12px; font-size:14px; }.rollback-metric { display:flex; flex-direction:column; gap:6px; color:var(--crm-text-secondary); }.rollback-metric strong { color:var(--crm-text-main); font-size:28px; }.rollback-metric small { font-size:12px; }

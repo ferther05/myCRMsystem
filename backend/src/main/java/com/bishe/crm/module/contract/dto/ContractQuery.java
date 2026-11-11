@@ -21,6 +21,9 @@ public class ContractQuery {
     @Max(value = 10, message = "每页固定 10 条")
     private long size = 10;
 
+    @jakarta.validation.constraints.Positive
+    private Long opportunityId;
+
     private String keyword;
     private String contractStatus;
     private String signingProgress;

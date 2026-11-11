@@ -1,9 +1,12 @@
 <!-- 文件作用：商机列表、阶段门槛、业务证据、协作和合同登记入口。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
+import OpportunityDetailActions from '@/components/OpportunityDetailActions.vue';
 import ContractWorkspace from '@/components/ContractWorkspace.vue';
 import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useTaskHighlight } from '@/composables/useTaskHighlight';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import {
   ElMessage,
@@ -40,7 +43,7 @@ const route = useRoute();
 const workspaceTab = computed({
   get: () => route.query.view === 'contracts' ? 'contracts' : 'opportunities',
   set: (view) => {
-    const { contractId, view: previousView, ...query } = route.query;
+    const { contractId, opportunityId, task, view: previousView, ...query } = route.query;
     void router.replace({ path: '/opportunities', query: { ...query, ...(view === 'contracts' ? { view } : {}) } });
   },
 });
@@ -67,6 +70,27 @@ const customers = ref([]),
   customerLoading = ref(false),
   tab = ref('stage');
 const followDetail = ref(null);
+const actionRoot = ref(null), selectedCollaborator = ref(null);
+const { highlight, clear: clearHighlight } = useTaskHighlight(actionRoot);
+watch([tab, detailOpen, dialog], clearHighlight);
+/** 任务只导航到实际入口，不越权提交、不创建业务记录。 */
+async function completeRequirement(requirement) {
+  if (requirement.code === 'EFFECTIVE_FOLLOW') {
+    tab.value = 'follow';
+    await nextTick();
+    const pending = detail.value.followRecords?.find(item => canReviewFollow(item) && item.opportunityStageCode === detail.value.stageCode && item.opportunityStageSeq === detail.value.stageSeq);
+    if (!await highlight(pending ? 'review-follow' : 'follow')) ElMessage.info('请查看本阶段跟进及核验状态；核验由本团队经理或管理员办理。');
+  } else if (['QUOTE', 'CUSTOMER_CONFIRMATION'].includes(requirement.code)) {
+    tab.value = 'evidence';
+    await nextTick();
+    if (!await highlight(requirement.code)) ElMessage.info('当前仅可查看，进入对应阶段后由有权负责人办理。');
+  } else {
+    const id = detail.value.id;
+    detailOpen.value = false;
+    await router.push({ path: '/opportunities', query: { view: 'contracts', opportunityId: id, task: requirement.code } });
+  }
+}
+const pendingStageFollow = computed(() => detail.value?.followRecords?.find(item => canReviewFollow(item) && item.opportunityStageCode === detail.value.stageCode && item.opportunityStageSeq === detail.value.stageSeq));
 const narrowDetail = ref(false);
 let detailMedia;
 /** 窄屏改为顶部分页导航，保留全部页面入口。 */
@@ -165,34 +189,35 @@ const money = (value) =>
 const time = (value) => (value ? String(value).replace('T', ' ').substring(0, 19) : '暂无');
 
 /** 加载当前页面所需的数据并维护加载和错误状态。 */
-async function load() {
+let generation = 0;
+async function load(refresh = false) {
+  const current = ++generation;
   loading.value = true;
   failure.value = '';
   try {
     const result = await api.listOpportunities({
+      refresh: refresh === true || undefined,
       page: page.value,
       size: size.value,
       keyword: filters.keyword.trim() || undefined,
       stageCode: filters.stageCode || undefined,
       activityStatus: filters.activityStatus || undefined,
     });
-    rows.value = result.list;
-    total.value = result.total;
+    if (current === generation) { rows.value = result.list; total.value = result.total; }
   } catch (error) {
-    failure.value = error.message;
+    if (current === generation) { failure.value = error.message; rows.value = []; total.value = 0; }
   } finally {
-    loading.value = false;
+    if (current === generation) loading.value = false;
   }
 }
 /** 回到第一页并按当前条件重新查询。 */
-function search() {
-  if (page.value !== 1) page.value = 1;
-  else load();
-}
-watch([page, size], load);
+const { search } = useAutoQuery({
+  filters: () => ({ ...filters }), page, size, load,
+  invalidate: () => { ++generation; loading.value = true; rows.value = []; },
+});
 /** 加载所选记录详情并打开详情窗口。 */
 async function openDetail(row) {
-  if (String(detail.value?.id) !== String(row.id) || !detailOpen.value) { tab.value = 'stage'; followDetail.value = null; }
+  if (String(detail.value?.id) !== String(row.id) || !detailOpen.value) { tab.value = 'stage'; followDetail.value = null; selectedCollaborator.value = null; clearHighlight(); }
   detailLoading.value = true;
   detailOpen.value = true;
   try {
@@ -530,10 +555,8 @@ onMounted(async () => {
           :label="label"
         />
       </el-select>
-      <el-button type="primary" :icon="Search" native-type="submit" :loading="loading"
-        >查询</el-button
-      >
-      <el-button :icon="Refresh" aria-label="刷新列表" title="刷新列表" @click="load" />
+      <span class="auto-query-note">自动筛选</span>
+      <el-button :icon="Refresh" aria-label="刷新列表" title="刷新列表" @click="load(true)" />
     </form>
     <DataTable
       :rows="rows"
@@ -598,8 +621,9 @@ onMounted(async () => {
           </div>
           <el-tag effect="dark">{{ labels[detail.stageCode] }}</el-tag>
         </div>
+        <div ref="actionRoot" class="opportunity-detail-content">
         <el-tabs v-model="tab" class="opportunity-pages" :tab-position="narrowDetail ? 'top' : 'left'">
-          <el-tab-pane name="stage" label="阶段推进">
+          <el-tab-pane name="stage"><template #label><span class="stage-nav-label">阶段推进 <small>主要入口</small></span></template>
             <section class="stage-panel" aria-label="商机阶段与推进要求">
               <div class="stage-title"><strong>当前阶段：{{ labels[detail.stageCode] }}</strong><span>满足条件后自动推进</span></div>
           <ol class="stage-track">
@@ -622,8 +646,7 @@ onMounted(async () => {
                 <ul class="stage-requirements compact-requirements">
                   <li v-for="requirement in currentProgress.requirements" :key="requirement.code">
                     <el-tag size="small" :type="requirement.met ? 'success' : 'warning'">{{ requirement.met ? '已完成' : '未完成' }}</el-tag>
-                    <div><strong>{{ requirement.label }}</strong><el-button v-if="requirement.code === 'CUSTOMER_CONFIRMATION' && !requirement.met && detail.canEdit && active && ['QUOTED', 'DEAL'].includes(detail.stageCode)" class="requirement-shortcut" link type="primary" @click="openDialog('CONFIRMATION')">登记合作确认</el-button><details v-if="requirement.action"><summary>要求说明</summary><p>{{ requirement.action }}</p></details></div>
-                    <el-button v-if="requirement.code === 'QUOTE' && !requirement.met && detail.canEdit && active && detail.stageCode !== 'NEW'" link type="primary" @click="openDialog('QUOTE')">录入报价</el-button>
+                    <div><strong>{{ requirement.label }}</strong><details><summary>查看详情</summary><p>{{ requirement.action }}</p><el-button link type="primary" @click="completeRequirement(requirement)">去完成</el-button></details></div>
                   </li>
                 </ul>
                 <p class="scope-note">推进需要本阶段、本轮经核验通过的有效跟进。</p>
@@ -631,11 +654,14 @@ onMounted(async () => {
               <el-empty v-else :image-size="48" description="当前阶段无需继续推进；业务历史仍可查询" />
               <el-alert v-if="currentProgress?.ready" title="条件已满足，下次相关业务保存时系统核对并推进。" type="info" :closable="false" />
             </section>
-            <div class="actions"><el-button v-if="active" type="primary" :icon="Plus" @click="openDialog('follow')">新增跟进</el-button><el-button @click="tab = 'evidence'">报价与合作确认</el-button><el-button @click="tab = 'follow'">查看跟进与核验</el-button></div>
-            <el-alert v-if="detail.activityStatus === 'CLOSE_PENDING'" title="待关闭裁决中，客户继续受保护；请在规则与管理页处理。" type="warning" :closable="false" />
+
+            <el-alert v-if="detail.activityStatus === 'CLOSE_PENDING'" title="待关闭裁决中，客户继续受保护；请在记录与规则页处理。" type="warning" :closable="false" />
+
+            <OpportunityDetailActions page="stage" :detail="detail" :active="active" :selected-collaborator="selectedCollaborator" :pending-stage-follow="pendingStageFollow"
+              @navigate="tab = $event" @dialog="openDialog" @create-contract="createContract" @view-contract="openContractWorkspace" @remove-collaborator="removeCollaborator" @review-follow="followDetail = $event" />
           </el-tab-pane>
 
-          <el-tab-pane name="overview" label="业务资料">
+<el-tab-pane name="overview" label="业务资料">
 <DetailSection title="业务概况" emphasis><el-descriptions :column="1" border><el-descriptions-item label="阶段 / 活跃度">
                 {{ labels[detail.stageCode] }} / {{ activityLabels[detail.activityStatus] }}
               </el-descriptions-item>
@@ -645,37 +671,36 @@ onMounted(async () => {
 <el-descriptions-item label="预计成交日期">
                 {{ detail.expectedCloseDate || '尚未补录' }}
               </el-descriptions-item></el-descriptions></DetailSection>
-<div class="actions"><el-button v-if="detail.canEdit && active" :icon="Edit" @click="openDialog('edit')">编辑业务资料</el-button></div>
-          </el-tab-pane>
-          <el-tab-pane name="evidence" label="报价与确认">
-            <div class="evidence-grid">
-              <section class="evidence-card"><span class="evidence-step">01 · 报价登记</span><h3>{{ detail.quoteAt ? '已登记报价' : '尚未登记报价' }}</h3><strong class="evidence-value">{{ detail.quoteAt ? '¥ ' + money(detail.quoteAmount) : '待填写金额及说明' }}</strong><p>{{ detail.quoteAt ? time(detail.quoteAt) : '填写正式报价金额与说明，预计金额不代替报价。' }}</p><el-button v-if="detail.canEdit && active && detail.stageCode !== 'NEW'" type="primary" @click="openDialog('QUOTE')">{{ detail.quoteAt ? '更新报价' : '录入报价' }}</el-button><span v-else class="scope-note">{{ detail.stageCode === 'NEW' ? '进入跟进阶段后可登记' : '当前仅可查看' }}</span></section>
-              <section class="evidence-card"><span class="evidence-step">02 · 合作确认</span><h3>{{ detail.customerConfirmAt ? '已登记合作确认' : '等待客户明确合作' }}</h3><p>{{ detail.customerConfirmAt ? time(detail.customerConfirmAt) : '客户明确合作后登记确认；系统仍会检查跟进核验等条件。' }}</p><el-button v-if="detail.canEdit && active && ['QUOTED', 'DEAL'].includes(detail.stageCode)" type="primary" plain @click="openDialog('CONFIRMATION')">{{ detail.customerConfirmAt ? '更新合作确认' : '登记合作确认' }}</el-button><span v-else class="scope-note">{{ active ? '报价阶段起可登记' : '当前仅可查看' }}</span></section>
-            </div>
-            <DetailSection v-if="['DEAL','WON'].includes(detail.stageCode)" title="合同与回款"><p class="scope-note">合同登记、文件核验与回款均在商机管理内办理。</p><div class="actions"><el-button v-if="detail.canEdit && detail.stageCode === 'DEAL'" @click="createContract">创建合同登记</el-button><el-button @click="openContractWorkspace">查看合同与回款</el-button></div></DetailSection>
-          </el-tab-pane>
-          <el-tab-pane name="collaboration" label="协作成员">
-            <div class="actions"><el-button v-if="detail.canManageCollaborators && active" type="primary" :icon="UserFilled" @click="openDialog('collaborator')">添加协作人</el-button></div>
-            <DetailSection title="协作成员与分工">
+
+          <details class="secondary-disclosure"><summary>协作成员（{{ detail.collaborators.length }}人）</summary><DetailSection title="协作成员与分工">
             <PagedItems :items="detail.collaborators" v-slot="{ rows: pageRows }">
-              <el-table :data="pageRows" empty-text="暂无协作人">
+              <el-table :data="pageRows" empty-text="暂无协作人" highlight-current-row @current-change="selectedCollaborator = $event">
                 <el-table-column prop="realName" label="姓名" />
                 <el-table-column label="分成比例">
                   <template #default="{ row }">{{ row.splitRatio }}%</template>
                 </el-table-column>
-                <el-table-column
-                  v-if="detail.canManageCollaborators && active"
-                  label="操作"
-                  width="80"
-                >
-                  <template #default="{ row }">
-                    <el-button link type="danger" @click="removeCollaborator(row)">移除</el-button>
-                  </template>
-                </el-table-column>
+
               </el-table>
             </PagedItems></DetailSection>
-          </el-tab-pane>
-          <el-tab-pane name="rules" label="规则与管理">
+          <p class="scope-note" v-if="detail.canManageCollaborators">点击一行选择协作人，再在底部移除。</p></details>
+            <OpportunityDetailActions page="overview" :detail="detail" :active="active" :selected-collaborator="selectedCollaborator" :pending-stage-follow="pendingStageFollow"
+              @navigate="tab = $event" @dialog="openDialog" @create-contract="createContract" @view-contract="openContractWorkspace" @remove-collaborator="removeCollaborator" @review-follow="followDetail = $event" />
+          </el-tab-pane><el-tab-pane name="evidence" label="报价与确认">
+            <div class="evidence-grid">
+              <section class="evidence-card"><span class="evidence-step">01 · 报价登记</span><h3>{{ detail.quoteAt ? '已登记报价' : '尚未登记报价' }}</h3><strong class="evidence-value">{{ detail.quoteAt ? '¥ ' + money(detail.quoteAmount) : '待填写金额及说明' }}</strong><p>{{ detail.quoteAt ? time(detail.quoteAt) : '填写正式报价金额与说明，预计金额不代替报价。' }}</p><span class="scope-note">{{ detail.stageCode === 'NEW' ? '进入跟进阶段后可登记' : detail.canEdit && active ? '在下方操作区办理报价' : '当前仅可查看' }}</span></section>
+              <section class="evidence-card"><span class="evidence-step">02 · 合作确认</span><h3>{{ detail.customerConfirmAt ? '已登记合作确认' : '等待客户明确合作' }}</h3><p>{{ detail.customerConfirmAt ? time(detail.customerConfirmAt) : '客户明确合作后登记确认；系统仍会检查跟进核验等条件。' }}</p><span class="scope-note">{{ ['QUOTED','DEAL'].includes(detail.stageCode) && detail.canEdit ? '在下方操作区办理合作确认' : active ? '报价阶段起可登记' : '当前仅可查看' }}</span></section>
+            </div>
+            <DetailSection v-if="['DEAL','WON'].includes(detail.stageCode)" title="合同与回款"><p class="scope-note">合同登记、文件核验与回款均在商机管理内办理。</p></DetailSection>
+
+            <OpportunityDetailActions page="evidence" :detail="detail" :active="active" :selected-collaborator="selectedCollaborator" :pending-stage-follow="pendingStageFollow"
+              @navigate="tab = $event" @dialog="openDialog" @create-contract="createContract" @view-contract="openContractWorkspace" @remove-collaborator="removeCollaborator" @review-follow="followDetail = $event" />
+          </el-tab-pane><el-tab-pane name="follow" label="跟进与核验">
+
+            <PagedItems :items="detail.followRecords" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无商机跟进"><el-table-column label="沟通结果" min-width="140"><template #default="{ row }">{{ resultLabels[row.resultCode] || row.resultCode }}</template></el-table-column><el-table-column prop="followUserName" label="跟进人" width="110"/><el-table-column label="核验" width="95"><template #default="{ row }"><el-tag size="small" :type="row.reviewStatus === 'CONFIRMED' ? 'success' : row.reviewStatus === 'RETURNED' ? 'warning' : 'info'">{{ reviewLabels[row.reviewStatus] }}</el-tag></template></el-table-column><el-table-column label="跟进时间" min-width="165"><template #default="{ row }">{{ time(row.followedAt) }}</template></el-table-column><el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="followDetail = row">{{ canReviewFollow(row) ? '详情 / 核验' : '详情' }}</el-button></template></el-table-column></el-table></PagedItems>
+
+            <OpportunityDetailActions page="follow" :detail="detail" :active="active" :selected-collaborator="selectedCollaborator" :pending-stage-follow="pendingStageFollow"
+              @navigate="tab = $event" @dialog="openDialog" @create-contract="createContract" @view-contract="openContractWorkspace" @remove-collaborator="removeCollaborator" @review-follow="followDetail = $event" />
+          </el-tab-pane><el-tab-pane name="records" label="记录与规则">
 <DetailSection title="活跃与停滞规则"><el-descriptions :column="1" border><el-descriptions-item label="停滞阈值">
                 {{ detail.stagnationDays }} 天 + 宽限
                 {{ detail.graceDays }} 天</el-descriptions-item
@@ -683,7 +708,7 @@ onMounted(async () => {
 <el-descriptions-item label="最近有效推进">
                 {{ time(detail.lastEffectiveProgressAt) }}
               </el-descriptions-item></el-descriptions></DetailSection>
-<div class="actions" v-if="active"><el-button v-if="detail.canSetThreshold" :icon="Clock" @click="openDialog('threshold')">调整停滞阈值</el-button><el-button v-if="detail.canChangeStage" @click="openDialog('stage')">管理员修正阶段</el-button><el-button v-if="detail.canDecidePending" type="warning" @click="openDialog('decision')">待关闭裁决</el-button></div>
+
 <p class="scope-note">待查验跟进仅暂时刷新活跃计时；打回后撤销有效性并重算，历史保留。</p>
           <details class="secondary-disclosure"><summary>结束分支与管理员修正规则</summary><div class="terminal-stages">
             <span>结束分支：</span>
@@ -714,18 +739,12 @@ onMounted(async () => {
                   <el-tag size="small" :type="requirement.met ? 'success' : 'warning'">
                     {{ requirement.met ? '已完成' : '未完成' }}
                   </el-tag>
-                  <span>{{ requirement.label }}</span>
+                  <div>{{ requirement.label }}<details><summary>查看详情</summary><p>{{ requirement.action }}</p><el-button link type="primary" @click="completeRequirement(requirement)">去完成</el-button></details></div>
                 </li>
               </ul>
             </article>
           </details>
-          </el-tab-pane>
-          <el-tab-pane name="follow" label="跟进与核验">
-            <div class="actions"><el-button v-if="active" type="primary" :icon="Plus" @click="openDialog('follow')">新增跟进</el-button></div>
-            <PagedItems :items="detail.followRecords" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无商机跟进"><el-table-column label="沟通结果" min-width="140"><template #default="{ row }">{{ resultLabels[row.resultCode] || row.resultCode }}</template></el-table-column><el-table-column prop="followUserName" label="跟进人" width="110"/><el-table-column label="核验" width="95"><template #default="{ row }"><el-tag size="small" :type="row.reviewStatus === 'CONFIRMED' ? 'success' : row.reviewStatus === 'RETURNED' ? 'warning' : 'info'">{{ reviewLabels[row.reviewStatus] }}</el-tag></template></el-table-column><el-table-column label="跟进时间" min-width="165"><template #default="{ row }">{{ time(row.followedAt) }}</template></el-table-column><el-table-column label="操作" width="100" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="followDetail = row">{{ canReviewFollow(row) ? '详情 / 核验' : '详情' }}</el-button></template></el-table-column></el-table></PagedItems>
-          </el-tab-pane>
-          <el-tab-pane name="history" label="阶段历史"><PagedItems :items="detail.stageHistory" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无阶段历史"><el-table-column label="阶段变化" min-width="150"><template #default="{ row }">{{ labels[row.fromStage] || '创建' }} → {{ labels[row.toStage] }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip/><el-table-column prop="operatorName" label="操作人" width="110"/><el-table-column label="时间" min-width="165"><template #default="{ row }">{{ time(row.occurredAt) }}</template></el-table-column></el-table></PagedItems></el-tab-pane>
-          <el-tab-pane v-if="detail.canEdit" name="audit" label="操作记录">
+          <details class="secondary-disclosure" open><summary>阶段历史</summary><PagedItems :items="detail.stageHistory" v-slot="{ rows: pageRows }"><el-table :data="pageRows" empty-text="暂无阶段历史"><el-table-column label="阶段变化" min-width="150"><template #default="{ row }">{{ labels[row.fromStage] || '创建' }} → {{ labels[row.toStage] }}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="180" show-overflow-tooltip/><el-table-column prop="operatorName" label="操作人" width="110"/><el-table-column label="时间" min-width="165"><template #default="{ row }">{{ time(row.occurredAt) }}</template></el-table-column></el-table></PagedItems></details><details v-if="detail.canEdit" class="secondary-disclosure"><summary>操作记录</summary>
             <PagedItems :items="detail.operationHistory" v-slot="{ rows: pageRows }">
               <el-timeline>
                 <el-timeline-item
@@ -743,8 +762,12 @@ onMounted(async () => {
                 </el-timeline-item>
               </el-timeline>
             </PagedItems>
-          </el-tab-pane>
-        </el-tabs>
+          </details>
+            <OpportunityDetailActions page="records" :detail="detail" :active="active" :selected-collaborator="selectedCollaborator" :pending-stage-follow="pendingStageFollow"
+              @navigate="tab = $event" @dialog="openDialog" @create-contract="createContract" @view-contract="openContractWorkspace" @remove-collaborator="removeCollaborator" @review-follow="followDetail = $event" />
+          </el-tab-pane>        </el-tabs>
+        </div>
+
       </template>
     </el-drawer>
 
@@ -1053,10 +1076,14 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.opportunity-detail-content { display:flex; flex:1; min-height:0; min-width:0; }
+.stage-nav-label { font-weight:700; color:#1d56b5; }
+.stage-nav-label small { display:block; font-size:10px; font-weight:400; }
+.opportunity-pages :deep(#tab-stage) { background:#edf4ff; border-radius:8px; height:56px; margin-bottom:8px; }
 .toolbar {
   display: flex;
-  gap: 12px;
-  padding: 18px;
+  gap: 16px;
+  padding: 20px;
   margin-bottom: 18px;
   flex-wrap: wrap;
 }
@@ -1291,7 +1318,7 @@ pre {
 /* 详情采用独立短页；导航固定，仅超长内容在当前页内滚动。 */
 :global(.opportunity-detail-drawer .el-drawer__header) { margin-bottom: 0; padding: 16px 22px 8px; }
 :global(.opportunity-detail-drawer .el-drawer__body) { display: flex; flex-direction: column; overflow: hidden; padding: 12px 22px 20px; }
-.opportunity-pages { flex: 1; min-height: 0; display: flex; }
+.opportunity-pages { flex: 1; min-height: 0; min-width:0; display: flex; }
 .opportunity-pages :deep(.el-tabs__header) { flex-shrink: 0; }
 .opportunity-pages :deep(.el-tabs__item) { justify-content: flex-start; height: 44px; padding: 0 18px; }
 .opportunity-pages :deep(.el-tabs__content) { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 12px 18px; }

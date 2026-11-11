@@ -64,6 +64,41 @@ class TaskModuleIT {
         f.cleanup();
     }
 
+    /** 导航红圈只统计本人的未读待处理；已读仍待办与已解除分别处理。 */
+    @Test void personalSummaryCountsUnreadAndPendingSeparately() {
+        for(Long actor:List.of(f.sales,f.manager,f.admin)) {
+            var empty=ok(call("GET","/summary",actor,null));
+            assertThat(empty.path("unreadCount").asLong()).isZero();
+            assertThat(empty.path("pendingCount").asLong()).isZero();
+        }
+        var today=LocalDate.now(clock);
+        long first=todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today);
+        long second=todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today.minusDays(1));
+        long resolved=todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today.minusDays(2));
+        long cancelled=todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today.minusDays(3));
+        long done=todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today.minusDays(4));
+        jdbc.update("UPDATE crm_todo SET todo_status='RESOLVED' WHERE id=?",resolved);
+        jdbc.update("UPDATE crm_todo SET todo_status='CANCELLED' WHERE id=?",cancelled);
+        jdbc.update("UPDATE crm_todo SET todo_status='DONE' WHERE id=?",done);
+        todo(f.manager,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today);
+        todo(f.admin,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today);
+        todo(f.peer,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",today);
+        var sales=ok(call("GET","/summary?recipientId="+f.peer,f.sales,null));
+        assertThat(sales.path("unreadCount").asLong()).isEqualTo(2);
+        assertThat(sales.path("pendingCount").asLong()).isEqualTo(2);
+        for(Long actor:List.of(f.manager,f.admin))
+            assertThat(ok(call("GET","/summary",actor,null)).path("pendingCount").asLong()).isEqualTo(1);
+        ok(call("POST","/todos/"+first+"/read",f.sales,Map.of("version",0)));
+        assertThat(ok(call("GET","/summary",f.sales,null)).path("unreadCount").asLong()).isEqualTo(1);
+        ok(call("POST","/todos/"+second+"/read",f.sales,Map.of("version",0)));
+        var dot=ok(call("GET","/summary",f.sales,null));
+        assertThat(dot.path("unreadCount").asLong()).isZero();
+        assertThat(dot.path("pendingCount").asLong()).isEqualTo(2);
+        jdbc.update("UPDATE crm_todo SET todo_status='RESOLVED' WHERE id IN (?,?)",first,second);
+        assertThat(ok(call("GET","/summary",f.sales,null)).path("pendingCount").asLong()).isZero();
+        assertThat(http.getForEntity("/api/tasks/summary",JsonNode.class).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     /** 本人分页十条；不能伪造接收人，日期/分页参数不合法会拒绝。 */
     @Test void personalPaginationAndQueryValidation() {
         for(int i=0;i<12;i++) todo(f.sales,"OPPORTUNITY",f.opportunity,"OPP_STAGNANT",LocalDate.now(clock).minusDays(i));

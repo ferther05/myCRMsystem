@@ -25,6 +25,7 @@ const emit = defineEmits(['update:page', 'retry']);
           background
           layout="total, prev, pager, next"
           :total="total"
+          :disabled="loading"
           :current-page="page"
           :page-size="10"
           :pager-count="5"

@@ -177,3 +177,16 @@ h3 {
 .detail-section .el-descriptions__label { width:155px; }
 .detail-tabs > .el-tabs__header { position:sticky; top:-20px; z-index:3; background:white; padding-top:4px; }
 @media(max-width:600px){.detail-keyfacts{grid-template-columns:1fr;padding:13px;gap:10px}.detail-keyfacts>div{display:flex;justify-content:space-between;gap:12px}.detail-keyfacts strong{font-size:14px}.detail-section .el-descriptions__label{width:115px}.detail-tabs>.el-tabs__header{top:-20px;}}
+
+/* 自动筛选状态与任务定位：柔和高亮，不用快速频闪。 */
+.auto-query-note { color:var(--crm-text-secondary); font-size:12px; align-self:center; white-space:nowrap; }
+.task-flash { animation:task-locate 1s ease-out; outline:2px solid #d28b12 !important; outline-offset:3px; }
+@keyframes task-locate { 0%,100% { box-shadow:0 0 0 0 #eab64b00; } 30%,65% { box-shadow:0 0 0 7px #eab64b55; background-color:#fff1c7; color:#624413; } }
+@media(prefers-reduced-motion:reduce) { .task-flash { animation:none; background:#fff1c7 !important; color:#624413 !important; } }
+/* 列表轻量增加留白，保持十条分页。 */
+.panel.toolbar, .panel.filters, .panel.list-toolbar, .filter-bar { gap:16px; row-gap:14px; padding:20px; }
+.data-table .el-table__cell, .panel > .el-table .el-table__cell { padding-top:13px; padding-bottom:13px; }
+/* 所有表格列表行在各自原间距基础上总共增加4px：上下各2px，表头保持原样。 */
+.el-table .el-table__body .el-table__cell { padding-top:10px; padding-bottom:10px; }
+.data-table .el-table__body .el-table__cell, .panel > .el-table .el-table__body .el-table__cell { padding-top:15px; padding-bottom:15px; }
+@media(max-width:600px) { .panel.toolbar, .panel.filters, .panel.list-toolbar, .filter-bar { gap:12px; padding:16px; } }

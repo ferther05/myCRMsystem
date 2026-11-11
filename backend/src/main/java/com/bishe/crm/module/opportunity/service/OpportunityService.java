@@ -101,6 +101,7 @@ public class OpportunityService {
         result.setStageHistory(opportunities.stageHistory(id));
         Opportunity entity = opportunities.find(id);
         result.setStageProgress(stageProgress(entity));
+        result.setStageSeq(entity.getStageSeq());
         result.setQuoteAmount(entity.getQuoteAmount());
         result.setQuoteAt(entity.getQuoteAt());
         result.setCustomerConfirmResult(entity.getCustomerConfirmResult());

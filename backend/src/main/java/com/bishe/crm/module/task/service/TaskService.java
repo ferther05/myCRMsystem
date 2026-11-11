@@ -33,6 +33,13 @@ public class TaskService {
     private final BusinessReminderService reminders;
     private final com.bishe.crm.module.customer.service.CustomerRecycleService recycle;
 
+    /** 导航角标只表示本人收到的未读提醒和待办，不扩大到团队数据。 */
+    @Transactional(readOnly=true)
+    public TaskViews.Summary summary(AuthPrincipal actor) {
+        usable(actor);
+        return mapper.summary(actor.id());
+    }
+
     /** 本人待办分页；归属改变后不再暴露旧业务名称或可点击位置。 */
     @Transactional(readOnly=true)
     public PageResult<TaskViews.TodoRow> todos(AuthPrincipal actor, TaskQuery query) {

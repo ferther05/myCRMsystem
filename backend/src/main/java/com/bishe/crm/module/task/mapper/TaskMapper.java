@@ -15,6 +15,10 @@ import org.apache.ibatis.annotations.*;
 /** 查询范围不能由客户端指定用户或团队。 */
 @Mapper
 public interface TaskMapper {
+    /** 只统计当前接收人，已解除/取消的旧未读记录不进入红点。 */
+    @Select("SELECT COALESCE(SUM(CASE WHEN read_at IS NULL THEN 1 ELSE 0 END),0) unread_count, COUNT(*) pending_count FROM crm_todo WHERE recipient_id=#{actor} AND todo_status='PENDING'")
+    TaskViews.Summary summary(@Param("actor") Long actor);
+
     String TODO_WHERE = " WHERE recipient_id=#{actor} " +
         "<if test='q.status != null'>AND todo_status=#{q.status} </if>" +
         "<if test='q.type != null'>AND todo_type=#{q.type} </if>" +

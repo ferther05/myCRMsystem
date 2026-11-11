@@ -1,6 +1,9 @@
 /* 文件作用：统一封装待办、操作记录和管理员扫描管理接口。 */
 import { http } from './http';
 
+/** 实时查询本人未读待处理数量和全部待处理数量。 */
+export const taskSummary = () => http.get('/tasks/summary');
+
 /** 分页查询本人待办。 */
 export const listTodos = (params) => http.get('/tasks/todos', { params });
 /** 已读仅更新当前接收人的阅读标记。 */

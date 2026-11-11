@@ -1,5 +1,7 @@
 <!-- 文件作用：嵌入商机管理的合同登记、签署核验、附件版本及回款工作区。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
+import { useTaskHighlight } from '@/composables/useTaskHighlight';
 import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
@@ -39,6 +41,11 @@ import { registrationErrors, registrationPayload } from '@/utils/contract-regist
 const route = useRoute();
 const emit = defineEmits(['updated']);
 const detailTab = ref('progress');
+const taskRoot = ref(null), workspaceRoot = ref(null);
+const { highlight, clear: clearHighlight } = useTaskHighlight(taskRoot);
+const { highlight: highlightRegistration, clear: clearRegistrationHighlight } = useTaskHighlight(workspaceRoot);
+
+
 const rows = ref([]),
   total = ref(0),
   page = ref(1),
@@ -56,6 +63,9 @@ const detail = ref(null),
   formError = ref(''),
   selectedFile = ref(null),
   progressDialog = ref(false);
+watch([detailTab, detailOpen, dialog], clearHighlight);
+watch(detailOpen, clearRegistrationHighlight);
+watch(listMode, clearRegistrationHighlight);
 const form = reactive({});
 const payments = ref(null);
 const paymentLoading = ref(false);
@@ -188,6 +198,7 @@ async function load() {
     const result = await fetch({
       page: page.value,
       size: size.value,
+      opportunityId: /^\d+$/.test(String(route.query.opportunityId)) ? Number(route.query.opportunityId) : undefined,
       keyword: filters.keyword.trim() || undefined,
       contractStatus: filters.contractStatus || undefined,
       signingProgress: filters.signingProgress || undefined,
@@ -207,18 +218,16 @@ async function load() {
   }
 }
 /** 回到第一页并按当前条件重新查询。 */
-async function search() {
-  page.value = 1;
-  await load();
-}
-watch([page, size], load);
+const { search } = useAutoQuery({
+  filters: () => ({ ...filters, listMode: listMode.value, opportunityId: route.query.opportunityId }), page, size, load,
+  invalidate: () => { ++generation; loading.value = true; rows.value = []; },
+});
 watch(
   listMode,
   /* 读取需要监听的响应式字段。 */ () => {
     filters.contractStatus = '';
     filters.signingProgress = '';
-    if (page.value === 1) void load();
-    else page.value = 1;
+
   },
 );
 /** 加载所选记录详情并打开详情窗口。 */
@@ -676,9 +685,30 @@ async function download(item) {
 /** 在商机管理内打开待办或旧链接定位的合同；非法编号不发请求。 */
 async function openRouteContract() {
   const id = route.query.contractId;
-  if (id && /^\d+$/.test(String(id))) await openDetail(Number(id));
+  if (id && /^\d+$/.test(String(id))) { await openDetail(Number(id)); return; }
+  const opportunityId = route.query.opportunityId;
+  if (!/^\d+$/.test(String(opportunityId))) return;
+  try {
+    const result = await api.listContracts({ page: 1, size: 10, opportunityId: Number(opportunityId) });
+    const contract = result.list.find(item => !['VOID','TERMINATED'].includes(item.contractStatus));
+    if (!contract) {
+      await load();
+      await nextTick();
+      if (!await highlightRegistration('register-contract')) ElMessage.info('当前没有可办理合同，请由负责人或管理员登记；协作权限不包含合同。');
+      return;
+    }
+    await openDetail(contract.id);
+    await nextTick();
+    const value = detail.value;
+    if (!value) return;
+    // 优先解决当前步骤的前置条件，不能跳过登记核对直接提交签署文件。
+    const target = value.canReview ? 'contract-review' : value.canSubmit ? 'contract-submit'
+      : value.canEdit && value.uploadMaterialType ? 'contract-upload'
+      : value.canSubmitDraft ? 'contract-edit' : value.canCorrectSigningProgress ? 'contract-restore' : '';
+    if (!target || !await highlight(target)) ElMessage.info(value.progressInstruction || '当前仅可查看，请等待有权人员办理。');
+  } catch (error) { ElMessage.error(error.message); }
 }
-watch(() => route.query.contractId, openRouteContract);
+watch(() => [route.query.contractId, route.query.opportunityId, route.query.task], openRouteContract);
 watch(detailOpen, (open) => { if (!open) emit('updated'); });
 onMounted(async () => {
   await load();
@@ -687,7 +717,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div>
+  <div ref="workspaceRoot">
+    <p v-if="route.query.opportunityId" class="scope-note">已定位到指定商机的合同任务；返回商机列表可清除定位范围。</p>
     <el-tabs v-model="listMode">
       <el-tab-pane label="成交商单登记" name="registration" />
       <el-tab-pane label="已登记档案" name="archive" />
@@ -724,7 +755,7 @@ onMounted(async () => {
           :label="item.label"
         />
       </el-select>
-      <el-button type="primary" native-type="submit" :loading="loading">查询</el-button>
+      <span class="auto-query-note">自动筛选</span>
       <el-button @click="load">刷新</el-button>
     </form>
     <DataTable
@@ -775,6 +806,7 @@ onMounted(async () => {
           <template v-if="listMode === 'registration'">
             <el-button
               v-if="row.canUpload"
+              data-task="register-contract"
               link
               type="primary"
               :disabled="acting"
@@ -862,10 +894,11 @@ onMounted(async () => {
           type="info"
           class="progress-help"
         />
-        <div class="actions">
-          <el-button v-if="detail.canEdit" @click="openEdit">编辑登记</el-button>
+        <div ref="taskRoot" class="actions">
+          <el-button v-if="detail.canEdit" data-task="contract-edit" @click="openEdit">编辑登记</el-button>
           <el-button
             v-if="detail.canSubmitDraft"
+            data-task="contract-draft-submit"
             type="primary"
             :loading="acting"
             @click="submitDraft"
@@ -875,19 +908,20 @@ onMounted(async () => {
           <el-button v-if="detail.canWithdrawDraft" :loading="acting" @click="withdrawDraft"
             >撤回本次登记提交</el-button
           >
-          <el-button v-if="detail.canEdit && detail.uploadMaterialType" @click="openUpload"
+          <el-button v-if="detail.canEdit && detail.uploadMaterialType" data-task="contract-upload" @click="openUpload"
             >上传实际签署合同</el-button
           >
           <el-button
             v-if="detail.canUpdateSigningProgress || detail.canCorrectSigningProgress"
+            data-task="contract-restore"
             @click="openProgress"
           >
             {{ detail.canCorrectSigningProgress ? '恢复／调整异常状态' : '异常／撤回' }}
           </el-button>
-          <el-button v-if="detail.canSubmit" type="primary" @click="submit"
+          <el-button v-if="detail.canSubmit" data-task="contract-submit" type="primary" @click="submit"
             >确定提交签署文件</el-button
           >
-          <el-button v-if="detail.canReview" type="success" @click="review(true)"
+          <el-button v-if="detail.canReview" data-task="contract-review" type="success" @click="review(true)"
             >核验通过</el-button
           >
           <el-button v-if="detail.canReview" type="warning" @click="review(false)"
@@ -1459,8 +1493,8 @@ onMounted(async () => {
 
 .toolbar {
   display: flex;
-  gap: 12px;
-  padding: 18px;
+  gap: 16px;
+  padding: 20px;
   margin-bottom: 18px;
   flex-wrap: wrap;
 }

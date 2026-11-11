@@ -1,5 +1,6 @@
 <!-- 文件作用：集中查询本人待办、授权操作摘要及管理员执行记录。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
 import DetailSection from '@/components/DetailSection.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -65,7 +66,9 @@ async function load() {
   finally { if (current === generation) loading.value = false; }
 }
 /** 筛选后回到第一页。 */
-function search() { if (page.value === 1) void load(); else page.value = 1; }
+const { search } = useAutoQuery({ filters: () => ({ ...params(), page: undefined, tab: tab.value }), page, load,
+  invalidate: () => { ++generation; rows.value = []; loading.value = true; },
+});
 /** 已读不隐藏欠款或代替审批，仍保留待处理状态。 */
 async function markRead(row) {
   if (acting.value) return;
@@ -95,21 +98,20 @@ async function run(row) {
   } catch (error) { if (!['cancel', 'close'].includes(error)) ElMessage.error(error.message); }
   finally { acting.value = false; }
 }
-watch(page, load);
+
 /** 按对象编号回溯同一业务的操作，并查看白名单字段变化。 */
 async function showOperation(row) {
   operationSummary.value = row;
   operationOpen.value=true;operation.value=null;operationError.value='';operationLoading.value=true;
   try {operation.value=await api.operationDetail(row.id);}catch(e){operationError.value=e.message;}finally{operationLoading.value=false;}
 }
-function trace(row){filters.bizType=row.bizType;filters.bizId=row.bizId;filters.action='';filters.from='';filters.to='';search();}
-watch(tab, () => { rows.value = []; total.value = 0; search(); });
+function trace(row){filters.bizType=row.bizType;filters.bizId=row.bizId;filters.action='';filters.from='';filters.to='';}
+
 // 同页面切换工作台捷径时同步入口条件，避免沿用上一次待办类型。
 watch(() => route.query, (query) => {
   filters.type = Object.hasOwn(types, query.type) ? query.type : '';
   const next = entryTab(query.tab);
-  if (tab.value === next) search();
-  else tab.value = next;
+  tab.value = next;
 });
 onMounted(load);
 </script>
@@ -140,7 +142,7 @@ onMounted(load);
         </template>
         <el-form-item v-show="moreFilters" :label="tab === 'operations' ? '操作日期' : '业务日期'"><el-date-picker v-model="filters.from" value-format="YYYY-MM-DD" type="date" placeholder="开始日期" /></el-form-item>
         <el-form-item v-show="moreFilters"><el-date-picker v-model="filters.to" value-format="YYYY-MM-DD" type="date" placeholder="结束日期" /></el-form-item>
-        <el-form-item><el-button type="primary" native-type="submit">查询</el-button><el-button @click="load">刷新</el-button><el-button text @click="moreFilters = !moreFilters">{{ moreFilters ? '收起筛选' : '更多筛选' }}{{ extraFiltersActive ? '（已选）' : '' }}</el-button></el-form-item>
+        <el-form-item><span class="auto-query-note">自动筛选</span><el-button @click="load">刷新</el-button><el-button text @click="moreFilters = !moreFilters">{{ moreFilters ? '收起筛选' : '更多筛选' }}{{ extraFiltersActive ? '（已选）' : '' }}</el-button></el-form-item>
       </el-form>
       <el-alert v-if="tab === 'todos'" title="标记已读只表示看过提醒；欠款、审批等业务须进入详情实际处理，解决后由系统解除。每个账号只办理自己的待办。" type="info" :closable="false" />
       <p v-if="tab === 'operations'" class="scope-note">专员查看本人业务，经理查看当前本团队业务，管理员查看全部。点击“变更对比”查看脱敏字段变化，“追溯此对象”汇总其记录；旧记录缺失快照不补造。</p>

@@ -10,6 +10,7 @@ import lombok.Setter;
 @Setter
 public class OpportunityDetailVO extends OpportunitySummaryVO {
 
+    private Long stageSeq;
     private List<OpportunityCollaboratorVO> collaborators;
     private List<OpportunityStageLogVO> stageHistory;
     private List<OpportunityStageProgressVO> stageProgress;

@@ -10,10 +10,12 @@ import AppIcon from '@/components/AppIcon.vue';
 import { rolePresentation } from '@/utils/page-presentation';
 import { useAuthStore } from '@/store/auth';
 import { ROLE_NAMES } from '@/utils/auth-rules';
+import { useTaskNotifications } from '@/composables/useTaskNotifications';
 
 const auth = useAuthStore();
 const route = useRoute();
 const router = useRouter();
+useTaskNotifications(route);
 // 角色识别只控制视觉提示，真实权限仍由后端负责。
 const identity = computed(() => rolePresentation[auth.user?.roleCode] || { title: '当前账号', focus: '工作空间', scope: '已授权业务', color: '#385b8e', soft: '#eef3fa', icon: 'User' });
 const compact = ref(false);

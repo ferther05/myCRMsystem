@@ -39,6 +39,7 @@ public interface ContractMapper {
             "<if test=\"q.keyword != null and q.keyword != ''\"> AND (c.contract_name LIKE CONCAT('%',#{q.keyword},'%') OR cu.customer_name LIKE CONCAT('%',#{q.keyword},'%') OR c.contract_no LIKE CONCAT('%',#{q.keyword},'%'))</if>" +
             "<if test=\"q.contractStatus != null and q.contractStatus != ''\"> AND c.contract_status=#{q.contractStatus}</if>" +
             "<if test=\"q.signingProgress != null and q.signingProgress != ''\"> AND c.signing_progress=#{q.signingProgress}</if>" +
+            "<if test=\"q.opportunityId != null\"> AND c.opportunity_id=#{q.opportunityId}</if>" +
             " ORDER BY c.id DESC</script>"
     )
     IPage<ContractSummaryVO> list(
@@ -61,6 +62,7 @@ public interface ContractMapper {
             "<if test=\"q.contractStatus == 'UNREGISTERED'\"> AND c.id IS NULL</if>" +
             "<if test=\"q.contractStatus != null and q.contractStatus != '' and q.contractStatus != 'UNREGISTERED'\"> AND c.contract_status=#{q.contractStatus}</if>" +
             "<if test=\"q.signingProgress != null and q.signingProgress != ''\"> AND c.signing_progress=#{q.signingProgress}</if>" +
+            "<if test=\"q.opportunityId != null\"> AND o.id=#{q.opportunityId}</if>" +
             " ORDER BY o.id DESC</script>"
     )
     IPage<ContractRegistrationVO> registrationOpportunities(

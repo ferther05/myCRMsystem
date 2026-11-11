@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.*;
 public class OpportunityController {
 
     private final OpportunityService opportunities;
+    private final com.bishe.crm.module.opportunity.service.OpportunityListCache listCache;
     private final OpportunityActivityService activity;
     private final CustomerService customers;
 
@@ -116,7 +117,7 @@ public class OpportunityController {
         @AuthenticationPrincipal AuthPrincipal actor,
         @Valid OpportunityQuery query
     ) {
-        return ApiResponse.success(opportunities.list(actor, query));
+        return ApiResponse.success(listCache.list(actor, query, () -> opportunities.list(actor, query)));
     }
 
     /** 查询详情并检查当前用户的数据权限。 */

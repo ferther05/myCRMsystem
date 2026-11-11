@@ -55,8 +55,16 @@ function rejectResponse(response, config, networkError) {
 
 http.interceptors.response.use(
   /** 提取成功响应数据或转换业务错误。 */
-  (response) =>
-    response.data?.code === 0 ? response.data.data : rejectResponse(response, response.config),
+  (response) => {
+    if (response.data?.code !== 0) return rejectResponse(response, response.config);
+    // 本会话业务提交成功后更新导航待办；GET统计和失败请求不会触发刷新循环。
+    const config = response.config;
+    if (typeof window !== 'undefined' && !['get', 'head', 'options'].includes(config.method?.toLowerCase())
+      && !config.public && config.crmToken && readToken() === config.crmToken) {
+      window.dispatchEvent(new Event('crm:business-updated'));
+    }
+    return response.data.data;
+  },
   /** 将 HTTP 或网络异常交给统一错误处理。 */
   (error) => rejectResponse(error.response, error.config, error),
 );

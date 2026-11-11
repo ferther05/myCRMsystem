@@ -22,4 +22,7 @@ public class OpportunityQuery extends PageQuery {
     private String activityStatus;
 
     private Long ownerId;
+
+    /** 手动刷新时绕过短时查询缓存。 */
+    private boolean refresh;
 }

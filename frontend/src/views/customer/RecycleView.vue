@@ -1,5 +1,6 @@
 <!-- 文件作用：管理员查看自动回收状态，必要时应急暂停或检查执行结果。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
 import DetailSection from '@/components/DetailSection.vue';
 import { onMounted, ref, watch } from 'vue';
 import { ElDescriptions, ElDescriptionsItem, ElCollapse, ElCollapseItem, ElMessage, ElMessageBox } from 'element-plus';
@@ -23,7 +24,9 @@ async function load() {
   finally { if (current === generation) loading.value = false; }
 }
 /** 搜索回到第一页。 */
-function search() { if (page.value === 1) void load(); else page.value = 1; }
+const { search } = useAutoQuery({ filters: () => ({ keyword: keyword.value }), page, load,
+  invalidate: () => { ++generation; rows.value = []; loading.value = true; },
+});
 /** 开启前说明影响；关闭与扫描逐客户使用同一数据库配置锁。 */
 async function toggle() {
   if (!setting.value || busy.value) return;
@@ -40,14 +43,14 @@ async function scan() {
   catch (e) { if (!['cancel', 'close'].includes(e)) ElMessage.error(e.message); }
   finally { busy.value = false; }
 }
-watch(page, load); onMounted(load);
+onMounted(load);
 </script>
 <template>
   <div>
     <PageHeading title="公海自动回收" description="系统自动提醒、到期检查和回收，日常无需人工执行；全部历史保留。" />
     <div class="panel recycle-toolbar">
       <el-alert v-if="setting" :title="setting.enabled ? '自动运行中 · 每10分钟检查，无需手动发送预警或执行扫描。' : '已应急暂停 · 系统暂不预警或回收，请在排查后恢复运行。'" :type="setting.enabled ? 'success' : 'warning'" :closable="false" />
-      <div class="actions"><el-input v-model="keyword" placeholder="客户名称" clearable maxlength="160" @keyup.enter="search" /><el-button type="primary" @click="search">查询</el-button><el-button @click="load">刷新</el-button></div>
+      <div class="actions"><el-input v-model="keyword" placeholder="客户名称" clearable maxlength="160" @keyup.enter="search" /><span class="auto-query-note">自动筛选</span><el-button @click="load">刷新</el-button></div>
       <details class="secondary-disclosure"><summary>查看回收规则与保护条件</summary><p>首联48小时预警／72小时到期；有效跟进27天预警／30天到期。未结束商机、合同回款、待审跟进、审批与交接受保护。页面结果仅供预览，执行时会再次复核。</p></details>
       <el-collapse v-model="maintenance"><el-collapse-item title="异常处理（平时无需操作）" name="maintenance"><el-button :disabled="busy || !setting" @click="toggle">{{ setting?.enabled ? '应急暂停' : '恢复自动运行' }}</el-button><el-button :loading="busy" @click="scan">立即检查一次</el-button><el-button @click="router.push('/tasks')">查看执行记录</el-button></el-collapse-item></el-collapse>
     </div>

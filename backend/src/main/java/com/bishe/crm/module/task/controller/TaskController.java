@@ -26,6 +26,9 @@ public class TaskController {
     /** TASK-08：授权范围内的字段前后值对比。 */
     @GetMapping("/operations/{id}")
     public ApiResponse<com.bishe.crm.module.task.service.OperationDetailService.Detail> operation(@AuthenticationPrincipal AuthPrincipal a,@Positive @PathVariable Long id) { return ApiResponse.success(details.detail(a,id)); }
+    /** TASK-09：本人未读待处理数量与待办数量，供导航提醒使用。 */
+    @GetMapping("/summary")
+    public ApiResponse<TaskViews.Summary> summary(@AuthenticationPrincipal AuthPrincipal a) { return ApiResponse.success(tasks.summary(a)); }
     /** TASK-01：本人待办分页。 */
     @GetMapping("/todos")
     public ApiResponse<PageResult<TaskViews.TodoRow>> todos(@AuthenticationPrincipal AuthPrincipal a,@Valid TaskQuery q) { return ApiResponse.success(tasks.todos(a,q)); }

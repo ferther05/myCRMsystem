@@ -7,6 +7,8 @@ import java.time.LocalDateTime;
 /** 任务中心对外视图。 */
 public final class TaskViews {
     private TaskViews() {}
+    /** 未读只统计仍待处理的提醒；已读不等于业务已完成。 */
+    public record Summary(long unreadCount, long pendingCount) {}
     /** 跳转位置由服务端白名单生成，并在点击时重新检查权限。 */
     public record Target(String path, String label) {}
     /** 业务状态与已读时间分开展示。 */

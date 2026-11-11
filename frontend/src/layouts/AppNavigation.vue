@@ -6,10 +6,13 @@ import { useAuthStore } from '@/store/auth';
 import { modules, canVisit } from '@/router/modules';
 import { pagePresentation } from '@/utils/page-presentation';
 import AppIcon from '@/components/AppIcon.vue';
+import TaskNotificationBadge from '@/components/TaskNotificationBadge.vue';
+import { useTaskNotificationsStore } from '@/store/task-notifications';
 const props = defineProps({ compact: Boolean });
 const emit = defineEmits(['navigate']);
 const route = useRoute();
 const auth = useAuthStore();
+const notifications = useTaskNotificationsStore();
 const groups = computed(
   /* 按角色及菜单分组生成侧栏导航。 */ () => {
     const items = modules.filter(
@@ -38,6 +41,7 @@ const groups = computed(
         <div v-if="!compact" class="nav-group">{{ group.title }}</div>
         <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path" :style="{ '--nav-accent': pagePresentation(item.path).color, '--nav-soft': pagePresentation(item.path).soft }">
           <AppIcon :name="item.icon" />
+          <TaskNotificationBadge v-if="item.path === '/tasks'" class="nav-task-badge" :unread-count="notifications.unreadCount" :pending-count="notifications.pendingCount" />
           <template #title>
             <span>{{ item.title }}</span>
             <span v-if="!item.ready" class="pending-dot" aria-label="待开发" />
@@ -66,6 +70,7 @@ const groups = computed(
   padding-top: 10px;
 }
 .el-menu-item {
+  position: relative;
   height: 44px;
   line-height: 44px;
   margin: 3px 11px;
@@ -73,6 +78,10 @@ const groups = computed(
   padding: 0 15px !important;
   font-size: 13px;
 }
+.nav-task-badge { position:absolute; right:12px; top:11px; }
+.nav-task-badge.is-dot { top:18px; }
+.el-menu--collapse .nav-task-badge { right:3px; top:3px; }
+.el-menu--collapse .nav-task-badge.is-dot { right:6px; top:6px; }
 .el-menu-item.is-active {
   background: var(--nav-soft);
   color: var(--nav-accent);

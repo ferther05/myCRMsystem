@@ -1,5 +1,6 @@
 <!-- 文件作用：管理或查询团队账号、角色、启停状态和密码重置。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
 import DetailSection from '@/components/DetailSection.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -94,7 +95,9 @@ watch(
   },
 );
 /** 加载当前页面所需的数据并维护加载和错误状态。 */
+let generation = 0;
 async function load() {
+  const current = ++generation;
   loading.value = true;
   failure.value = '';
   try {
@@ -104,20 +107,18 @@ async function load() {
       keyword: keyword.value.trim() || undefined,
       accountStatus: status.value || undefined,
     });
-    rows.value = result.list;
-    total.value = result.total;
+    if (current === generation) { rows.value = result.list; total.value = result.total; }
   } catch (error) {
-    failure.value = error.message;
+    if (current === generation) { failure.value = error.message; rows.value = []; total.value = 0; }
   } finally {
-    loading.value = false;
+    if (current === generation) loading.value = false;
   }
 }
 /** 回到第一页并按当前条件重新查询。 */
-async function search() {
-  page.value = 1;
-  await load();
-}
-watch([page, size], load);
+const { search } = useAutoQuery({
+  filters: () => ({ keyword: keyword.value, status: status.value }), page, size, load,
+  invalidate: () => { ++generation; loading.value = true; rows.value = []; },
+});
 /** 初始化并打开当前业务操作弹窗。 */
 async function open(kind, row = null) {
   formError.value = '';
@@ -214,7 +215,7 @@ onMounted(load);
           :label="label"
         />
       </el-select>
-      <el-button type="primary" native-type="submit" :loading="loading">查询</el-button>
+      <span class="auto-query-note">自动筛选</span>
       <el-button :disabled="loading" @click="load">刷新</el-button>
     </form>
     <DataTable
@@ -358,8 +359,8 @@ onMounted(load);
 <style scoped>
 .list-toolbar {
   display: flex;
-  gap: 12px;
-  padding: 18px;
+  gap: 16px;
+  padding: 20px;
   margin-bottom: 18px;
   flex-wrap: wrap;
 }

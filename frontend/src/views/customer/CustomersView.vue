@@ -1,5 +1,6 @@
 <!-- 文件作用：客户私海及公海列表、档案、跟进查验和归属操作。 -->
 <script setup>
+import { useAutoQuery } from '@/composables/useAutoQuery';
 import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
 import CustomerRecyclePanel from './CustomerRecyclePanel.vue';
@@ -173,14 +174,9 @@ async function initialize() {
   }
 }
 /** 回到第一页并按当前条件重新查询。 */
-function search() {
-  if (page.value === 1) void load();
-  else page.value = 1;
-}
 /** 重置筛选条件并重新查询。 */
 function reset() {
   Object.assign(filters, initialFilters());
-  search();
 }
 /** 打开所选客户的详情。 */
 async function show(row) {
@@ -583,11 +579,12 @@ watch(
     rows.value = [];
     total.value = 0;
     Object.assign(filters, initialFilters());
-    if (page.value === 1) void load();
-    else page.value = 1;
   },
 );
-watch([page, size], load);
+const { search } = useAutoQuery({
+  filters: () => ({ ...filters, sea: sea.value }), page, size, load,
+  invalidate: () => { ++generation; loading.value = true; rows.value = []; },
+});
 /** 从待办跳转时打开原权限范围内的客户详情。 */
 watch(() => route.query.id, (id) => {
   if (id && /^\d+$/.test(String(id))) void show({ id: Number(id) });
@@ -706,7 +703,7 @@ void initialize();
         </el-select>
       </el-form-item>
       <div class="filter-actions">
-        <el-button type="primary" native-type="submit" :loading="loading">查询</el-button>
+        <span class="auto-query-note">自动筛选</span>
         <el-button @click="reset">重置</el-button><el-button text @click="moreFilters = !moreFilters">{{ moreFilters ? '收起筛选' : '更多筛选' }}{{ extraFilterCount ? `（已选${extraFilterCount}项）` : '' }}</el-button>
       </div>
     </el-form>
@@ -719,7 +716,7 @@ void initialize();
       @retry="initialize"
     >
       <el-table-column prop="customerName" label="客户名称" min-width="230" show-overflow-tooltip />
-      <el-table-column label="所属负责人 / 团队" min-width="180">
+      <el-table-column v-if="sea !== 'PUBLIC'" label="所属负责人 / 团队" min-width="180">
         <template #default="{ row }">
           <div>{{ row.ownerName || '未分配专员' }}</div>
           <div class="muted">{{ row.teamName || '公司公海' }}</div>
@@ -762,7 +759,7 @@ void initialize();
         <div class="detail-title">
           <div>
             <h2>{{ detail.customerName }}</h2>
-            <p>
+            <p v-if="detail.seaType !== 'PUBLIC' && sea !== 'PUBLIC'">
               所属负责人：{{ detail.ownerName || '未分配专员' }} · 所属团队：{{
                 detail.teamName || '公司公海'
               }}
@@ -1270,11 +1267,11 @@ void initialize();
 </template>
 <style scoped>
 .filters {
-  padding: 20px 20px 4px;
+  padding: 22px 22px 6px;
   margin-bottom: 20px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0 16px;
+  gap: 4px 20px;
 }
 .filter-actions {
   display: flex;
