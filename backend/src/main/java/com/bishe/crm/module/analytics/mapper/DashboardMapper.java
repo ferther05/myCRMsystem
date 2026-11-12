@@ -9,6 +9,26 @@ import org.apache.ibatis.annotations.*;
 
 @Mapper
 public interface DashboardMapper {
+    /** 管理员当前资源与待核验摘要，子查询分别聚合避免JOIN重复。 */
+    @Select("SELECT " +
+        "(SELECT COUNT(*) FROM crm_customer WHERE deleted=0 AND sea_type='PUBLIC') publicCustomers," +
+        "(SELECT COUNT(*) FROM crm_customer WHERE deleted=0 AND sea_type='PUBLIC' AND owner_id IS NULL) unassignedPublicCustomers," +
+        "(SELECT COUNT(*) FROM sys_user WHERE account_status='ACTIVE') activeAccounts," +
+        "(SELECT COUNT(*) FROM sys_user WHERE account_status='DISABLED') disabledAccounts," +
+        "(SELECT COUNT(*) FROM sys_user WHERE account_status='PENDING') pendingAccounts," +
+        "(SELECT COUNT(*) FROM sys_team WHERE enabled=1) enabledTeams," +
+        "(SELECT COUNT(*) FROM crm_approval a JOIN sys_user u ON u.id=a.biz_id WHERE a.approval_type='ACCOUNT_OPEN' AND a.biz_type='USER' AND a.approval_status='PENDING' AND u.account_status='PENDING') pendingAccountApplications," +
+        "(SELECT COUNT(*) FROM crm_contract WHERE contract_status='PENDING_REVIEW' AND signing_progress IN ('DRAFT_REVIEW','FILE_REVIEW')) pendingContractReviews")
+    Map<String,Object> adminResourceCounts();
+
+    /** 启用及停用团队均可查看资源残留；在办商机不含终态。 */
+    @Select("SELECT t.id,t.team_name," +
+        "(SELECT COUNT(*) FROM sys_user u WHERE u.team_id=t.id AND u.account_status='ACTIVE') active_members," +
+        "(SELECT COUNT(*) FROM crm_customer c WHERE c.team_id=t.id AND c.deleted=0 AND c.sea_type='PRIVATE') private_customers," +
+        "(SELECT COUNT(*) FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id WHERE c.deleted=0 AND c.sea_type='PRIVATE' AND o.team_id=t.id AND o.stage_code IN ('NEW','FOLLOWING','QUOTED','DEAL')) open_opportunities " +
+        "FROM sys_team t ORDER BY t.enabled DESC,t.id")
+    List<DashboardViews.TeamResources> adminTeamResources();
+
     /** 只返回本人、本团队或管理员范围内的筛选人员，包含历史停用人员。 */
     List<DashboardViews.Owner> owners(@Param("s") DataScope scope);
     /** 当前存量与时间范围内的业绩分别计算。 */

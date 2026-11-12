@@ -6,8 +6,10 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElDescriptions, ElDescriptionsItem, ElDialog, ElSelect, ElOption, ElMessage } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
+import TaskNotificationBadge from '@/components/TaskNotificationBadge.vue';
 import DataTable from '@/components/DataTable.vue';
 import { useAuthStore } from '@/store/auth';
+import { useTaskNotificationsStore } from '@/store/task-notifications';
 import { ROLE_NAMES } from '@/utils/auth-rules';
 import {
   ACCOUNT_STATUS,
@@ -19,6 +21,7 @@ import {
 import * as api from '@/api/users';
 
 const auth = useAuthStore();
+const notifications = useTaskNotificationsStore();
 const router = useRouter();
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
 const rows = ref([]);
@@ -49,11 +52,13 @@ const form = reactive({
   email: '',
   roleCode: 'SPECIALIST',
   teamId: null,
+        newTeamName: '',
   accountStatus: 'ACTIVE',
   initialPassword: '',
 });
 const titles = { create: '直接创建账号', access: '调整角色与账号状态', reset: '重置登录密码' };
 const rules = {
+  newTeamName: [{ required: true, whitespace: true, max: 100, message: '请输入新增团队名称，最多100字', trigger: 'blur' }],
   username: [
     {
       validator: check(
@@ -83,7 +88,7 @@ const rules = {
   teamId: [
     {
       /* 校验当前字段并通过回调返回结果。 */ validator: (_r, value, callback) =>
-        form.roleCode === 'ADMIN' || value ? callback() : callback(new Error('请选择所属团队')),
+        form.roleCode === 'ADMIN' || (dialog.value === 'create' && form.roleCode === 'MANAGER') || value ? callback() : callback(new Error('请选择所属团队')),
       trigger: 'change',
     },
   ],
@@ -91,7 +96,8 @@ const rules = {
 watch(
   /* 读取需要监听的响应式字段。 */ () => form.roleCode,
   /* 响应数据变化，更新关联页面状态。 */ (role) => {
-    if (role === 'ADMIN') form.teamId = null;
+    if (role === 'ADMIN' || (role === 'MANAGER' && dialog.value === 'create')) form.teamId = null;
+    formRef.value?.clearValidate(['teamId', 'newTeamName']);
   },
 );
 /** 加载当前页面所需的数据并维护加载和错误状态。 */
@@ -135,6 +141,7 @@ async function open(kind, row = null) {
         email: '',
         roleCode: 'SPECIALIST',
         teamId: null,
+  newTeamName: '',
         accountStatus: 'ACTIVE',
         initialPassword: '',
       },
@@ -159,7 +166,8 @@ async function save() {
         phone: form.phone || null,
         email: form.email || null,
         roleCode: form.roleCode,
-        teamId: form.teamId,
+        teamId: form.roleCode === 'MANAGER' ? null : form.teamId,
+        newTeamName: form.roleCode === 'MANAGER' ? form.newTeamName.trim() : undefined,
         initialPassword: form.initialPassword,
       });
     else if (dialog.value === 'access')
@@ -189,14 +197,15 @@ onMounted(load);
 <template>
   <div>
     <PageHeading
-      :title="admin ? '账号与团队管理' : '团队成员'"
+      :title="admin ? '账号管理' : '团队成员'"
       :description="
         admin
-          ? '管理员查看全部账号，管理角色、团队、启停状态和密码。'
+          ? '管理账号、角色与团队；可创建账号，或进入账号申请审核查看详情并处理申请。'
           : '仅显示本团队成员；新成员账号需提交管理员审核。'
       "
     >
       <el-button v-if="admin" type="primary" @click="open('create')">创建账号</el-button>
+      <el-button v-if="admin" class="application-review-button" @click="router.push('/approvals')">账号申请审核<TaskNotificationBadge :unread-count="notifications.accountPendingCount" :pending-count="notifications.accountPendingCount" /></el-button>
       <el-button v-else type="primary" @click="router.push('/approvals')">申请新成员账号</el-button>
     </PageHeading>
     <form class="panel list-toolbar" @submit.prevent="search">
@@ -254,14 +263,14 @@ onMounted(load);
     <p class="scope-note">
       {{
         admin
-          ? '管理员账号不绑定团队；经理和专员必须绑定启用的团队。有关联业务的账号需先完成交接，才能调整角色或团队。'
+          ? '管理员账号不绑定团队；新建经理同时创建新团队，专员选择已有启用团队。有关联业务的账号需先完成交接，才能调整角色或团队。'
           : '团队范围由后端根据当前登录身份确定，修改网址或请求参数不能扩大范围。'
       }}
     </p>
 <el-drawer :model-value="Boolean(selectedAccount)" @close="selectedAccount = null" title="账号详情" size="min(620px, 100%)"><template v-if="selectedAccount">
 <DetailSection title="身份与归属" emphasis><el-descriptions :column="1" border><el-descriptions-item label="姓名 / 账号">{{ selectedAccount.realName }} / {{ selectedAccount.username }}</el-descriptions-item><el-descriptions-item label="角色">{{ ROLE_NAMES[selectedAccount.roleCode] }}</el-descriptions-item><el-descriptions-item label="所属团队">{{ selectedAccount.teamName || '系统管理' }}</el-descriptions-item><el-descriptions-item label="账号状态">{{ ACCOUNT_STATUS[selectedAccount.accountStatus] }}</el-descriptions-item></el-descriptions></DetailSection>
 <DetailSection title="联系资料"><el-descriptions :column="1" border><el-descriptions-item label="联系电话">{{ selectedAccount.phone || '未填写' }}</el-descriptions-item><el-descriptions-item label="邮箱">{{ selectedAccount.email || '未填写' }}</el-descriptions-item></el-descriptions></DetailSection>
-<DetailSection title="账号安全"><p>{{ selectedAccount.mustChangePassword ? '下次登录需修改初始密码' : '已完成密码设置' }}</p><div v-if="admin && selectedAccount.id !== auth.user.id && selectedAccount.accountStatus !== 'PENDING'" class="detail-actions"><el-button @click="open('access', selectedAccount); selectedAccount = null">角色与状态</el-button><el-button @click="open('reset', selectedAccount); selectedAccount = null">重置密码</el-button></div></DetailSection>
+<DetailSection title="账号安全"><p>{{ selectedAccount.mustChangePassword ? '下次登录将提示修改初始密码，可跳过' : '首次密码提示已处理（修改或跳过）' }}</p><div v-if="admin && selectedAccount.id !== auth.user.id && selectedAccount.accountStatus !== 'PENDING'" class="detail-actions"><el-button @click="open('access', selectedAccount); selectedAccount = null">角色与状态</el-button><el-button @click="open('reset', selectedAccount); selectedAccount = null">重置密码</el-button></div></DetailSection>
 </template></el-drawer>
     <el-dialog
       v-model="dialogOpen"
@@ -317,7 +326,8 @@ onMounted(load);
               />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="form.roleCode !== 'ADMIN'" label="所属团队" prop="teamId">
+          <el-form-item v-if="dialog === 'create' && form.roleCode === 'MANAGER'" label="新增团队名称" prop="newTeamName"><el-input v-model="form.newTeamName" maxlength="100" placeholder="创建新团队并由本账号担任经理" /></el-form-item>
+          <el-form-item v-else-if="form.roleCode !== 'ADMIN'" label="所属团队" prop="teamId">
             <el-select v-model="form.teamId" placeholder="选择启用的团队">
               <el-option
                 v-for="team in teams.filter(/* 仅提供启用的团队供账号选择。 */ (t) => t.enabled)"
@@ -347,7 +357,7 @@ onMounted(load);
           {{
             dialog === 'access'
               ? '保存后该账号需重新登录；停用不自动释放业务归属。'
-              : '请自行妥善告知使用人；系统只保存密码哈希，首次登录必须改密。'
+              : '请自行妥善告知使用人；系统只保存密码哈希，首次登录建议改密，也可跳过。'
           }}
         </p>
         <el-button type="primary" native-type="submit" :loading="saving">确认保存</el-button>
@@ -376,6 +386,7 @@ onMounted(load);
   line-height: 1.8;
   margin-top: 16px;
 }
+:deep(.application-review-button .task-notification-badge) { margin-left:8px; }
 :deep(.el-dialog) {
   max-width: calc(100vw - 24px);
 }

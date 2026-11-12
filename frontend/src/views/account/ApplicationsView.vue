@@ -2,6 +2,8 @@
 <script setup>
 import DetailSection from '@/components/DetailSection.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ArrowLeft } from '@element-plus/icons-vue';
 import { ElDescriptions, ElDescriptionsItem, ElDialog, ElMessage, ElRadioGroup, ElRadio } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
 import DataTable from '@/components/DataTable.vue';
@@ -15,6 +17,7 @@ import {
 } from '@/utils/account-rules';
 import * as api from '@/api/users';
 const auth = useAuthStore();
+const router = useRouter();
 const applicationDetail = ref(null);
 const admin = computed(/* 判断当前身份是否为管理员。 */ () => auth.user?.roleCode === 'ADMIN');
 const rows = ref([]),
@@ -162,13 +165,14 @@ onMounted(load);
 <template>
   <div>
     <PageHeading
-      title="内部账号申请与审核"
+      :title="admin ? '账号申请审核' : '内部账号申请'"
       :description="
         admin
-          ? '审核团队经理提交的新专员账号申请；通过时设置初始密码。'
+          ? '查看申请详情，核对资料后通过或驳回；通过时设置初始密码。'
           : `为 ${auth.user?.teamName || '本团队'} 新成员申请专员账号。`
       "
     >
+      <el-button v-if="admin" :icon="ArrowLeft" @click="router.push('/system')">返回账号管理</el-button>
       <el-button v-if="!admin" type="primary" @click="open()">提交账号申请</el-button>
       <el-button :loading="loading" @click="load">刷新</el-button>
     </PageHeading>

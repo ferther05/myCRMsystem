@@ -1,8 +1,8 @@
 /* 文件作用：集中维护角色与业务页面的视觉标识，仅用于展示，不决定访问权限。 */
 export const rolePresentation = {
-  ADMIN: { title: '管理员', focus: '全局管理', scope: '全局业务', color: '#6550a3', soft: '#f1eef9', icon: 'Setting', hint: '账号分配、业务统筹与异常处理' },
-  MANAGER: { title: '团队经理', focus: '团队管理', scope: '本团队业务', color: '#176f69', soft: '#eaf5f2', icon: 'OfficeBuilding', hint: '团队进展、跟进核验与业务审批' },
-  SPECIALIST: { title: '销售专员', focus: '销售跟进', scope: '本人及授权业务', color: '#2459ab', soft: '#edf3fc', icon: 'User', hint: '客户跟进、商机推进与签约回款' },
+  ADMIN: { sidebar: '#27233f', title: '管理员', focus: '全局管理', scope: '全局业务', color: '#6550a3', soft: '#f1eef9', icon: 'Setting', hint: '账号分配、业务统筹与异常处理' },
+  MANAGER: { sidebar: '#153b3a', title: '团队经理', focus: '团队管理', scope: '本团队业务', color: '#176f69', soft: '#eaf5f2', icon: 'OfficeBuilding', hint: '团队进展、跟进核验与业务审批' },
+  SPECIALIST: { sidebar: '#172d4d', title: '销售专员', focus: '销售跟进', scope: '本人及授权业务', color: '#2459ab', soft: '#edf3fc', icon: 'User', hint: '客户跟进、商机推进与签约回款' },
 };
 const pages = {
   '/workbench': { label: '工作空间', color: '#385b8e', soft: '#eef3fa', icon: 'House' },

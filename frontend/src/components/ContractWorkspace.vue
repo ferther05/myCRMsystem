@@ -4,7 +4,7 @@ import { useAutoQuery } from '@/composables/useAutoQuery';
 import { useTaskHighlight } from '@/composables/useTaskHighlight';
 import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import {
   ElAlert,
@@ -35,10 +35,13 @@ import {
   ElStep,
 } from 'element-plus';
 import DataTable from '@/components/DataTable.vue';
+import { useAuthStore } from '@/store/auth';
 import * as api from '@/api/contracts';
 import { registrationErrors, registrationPayload } from '@/utils/contract-registration';
 
 const route = useRoute();
+const auth = useAuthStore();
+const roleInstruction = computed(() => auth.user?.roleCode === 'SPECIALIST' ? '我的办理：填写登记、提交核对，再上传实际签署文件及办理回款。' : auth.user?.roleCode === 'MANAGER' ? '团队核验：核对合同登记与最新签署版本，审批回款计划；本人提交资料不自审。' : '全局合同：查看签署、归属和回款结果；核验与异常纠正仍按业务条件执行。');
 const emit = defineEmits(['updated']);
 const detailTab = ref('progress');
 const taskRoot = ref(null), workspaceRoot = ref(null);
@@ -230,35 +233,40 @@ watch(
 
   },
 );
-/** 加载所选记录详情并打开详情窗口。 */
+let detailRequest = 0, paymentRequest = 0;
+watch(detailOpen, open => { if (!open) { ++detailRequest; ++paymentRequest; } });
+onBeforeUnmount(() => { ++detailRequest; ++paymentRequest; ++generation; });
+/** 详情对象改变后旧合同响应不得覆盖当前合同。 */
 async function openDetail(rowOrId) {
-  detailTab.value = 'progress';
-  detail.value = null;
-  detailOpen.value = true;
-  detailLoading.value = true;
+  const current = ++detailRequest, id = typeof rowOrId === 'object' ? rowOrId.id : rowOrId;
+  ++paymentRequest; payments.value = null;
+  detailTab.value = 'progress'; detail.value = null; detailOpen.value = true; detailLoading.value = true;
   try {
-    detail.value = await api.getContract(typeof rowOrId === 'object' ? rowOrId.id : rowOrId);
-    await loadPayments();
+    const result = await api.getContract(id);
+    if (current !== detailRequest) return;
+    detail.value = result;
+    await loadPayments(current, id);
   } catch (error) {
-    ElMessage.error(error.message);
-    detailOpen.value = false;
+    if (current === detailRequest) { ElMessage.error(error.message); detailOpen.value = false; }
   } finally {
-    detailLoading.value = false;
+    if (current === detailRequest) detailLoading.value = false;
   }
 }
-/** 刷新回款详情并显示接口失败状态。 */
-async function loadPayments() {
-  if (!detail.value?.id) return;
+/** 回款与合同刷新绑定同一个对象和请求代次。 */
+async function loadPayments(expectedDetail = detailRequest, contractId = detail.value?.id) {
+  if (!contractId) return;
+  const current = ++paymentRequest;
   paymentLoading.value = true;
+  const active = () => current === paymentRequest && expectedDetail === detailRequest && String(detail.value?.id) === String(contractId);
   try {
-    payments.value = await api.getPayments(detail.value.id);
-    detail.value = await api.getContract(detail.value.id);
+    const [paymentResult, contractResult] = await Promise.all([api.getPayments(contractId), api.getContract(contractId)]);
+    if (!active()) return;
+    payments.value = paymentResult; detail.value = contractResult;
     await load();
   } catch (error) {
-    payments.value = null;
-    ElMessage.error(`回款信息加载失败：${error.message}`);
+    if (active()) { payments.value = null; ElMessage.error(`回款信息加载失败：${error.message}`); }
   } finally {
-    paymentLoading.value = false;
+    if (active()) paymentLoading.value = false;
   }
 }
 /** 准备首版计划或基于已收余额的计划换版草稿。 */
@@ -685,7 +693,11 @@ async function download(item) {
 /** 在商机管理内打开待办或旧链接定位的合同；非法编号不发请求。 */
 async function openRouteContract() {
   const id = route.query.contractId;
-  if (id && /^\d+$/.test(String(id))) { await openDetail(Number(id)); return; }
+  if (id && /^\d+$/.test(String(id))) {
+    await openDetail(Number(id));
+    if (String(detail.value?.id) === String(id) && ['progress','registration','payments','files','history'].includes(route.query.section)) detailTab.value = route.query.section;
+    return;
+  }
   const opportunityId = route.query.opportunityId;
   if (!/^\d+$/.test(String(opportunityId))) return;
   try {
@@ -708,7 +720,7 @@ async function openRouteContract() {
     if (!target || !await highlight(target)) ElMessage.info(value.progressInstruction || '当前仅可查看，请等待有权人员办理。');
   } catch (error) { ElMessage.error(error.message); }
 }
-watch(() => [route.query.contractId, route.query.opportunityId, route.query.task], openRouteContract);
+watch(() => [route.query.contractId, route.query.opportunityId, route.query.task, route.query.section], openRouteContract);
 watch(detailOpen, (open) => { if (!open) emit('updated'); });
 onMounted(async () => {
   await load();
@@ -718,6 +730,7 @@ onMounted(async () => {
 
 <template>
   <div ref="workspaceRoot">
+    <p class="scope-note">{{ roleInstruction }}</p>
     <p v-if="route.query.opportunityId" class="scope-note">已定位到指定商机的合同任务；返回商机列表可清除定位范围。</p>
     <el-tabs v-model="listMode">
       <el-tab-pane label="成交商单登记" name="registration" />

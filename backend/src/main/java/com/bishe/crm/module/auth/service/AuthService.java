@@ -114,6 +114,38 @@ public class AuthService {
         }
     }
 
+    /** 明确跳过首次改密提示，原密码不变，返回替换旧会话的令牌。 */
+    @Transactional
+    public LoginVO skipPassword(AuthPrincipal principal) {
+        SystemUser user = currentUser(principal);
+        if (
+            !Boolean.TRUE.equals(user.getMustChangePassword()) ||
+            users.skipPasswordPrompt(
+                user.getId(),
+                principal.version(),
+                LocalDateTime.now(businessClock)
+            ) != 1
+        ) {
+            throw new BizException(ErrorCode.CONFLICT);
+        }
+        if (
+            users.insertSkipAudit(user.getId(), user.getTeamId(), LocalDateTime.now(businessClock)) !=
+            1
+        ) {
+            throw new IllegalStateException("Skip audit was not persisted");
+        }
+        user.setMustChangePassword(false);
+        user.setVersion(user.getVersion() + 1);
+        var token = tokens.issue(AuthPrincipal.from(user));
+        return new LoginVO(
+            token.value(),
+            "Bearer",
+            token.expiresIn(),
+            token.expiresAt(),
+            CurrentUserVO.from(user)
+        );
+    }
+
     /** 提升会话版本使旧令牌失效。 */
     @Transactional
     public void logout(AuthPrincipal principal) {

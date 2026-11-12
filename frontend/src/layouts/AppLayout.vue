@@ -24,6 +24,11 @@ const leaving = ref(false);
 const initial = computed(
   /* 计算顶栏头像显示的姓名首字。 */ () => auth.user?.realName?.slice(0, 1) || '我',
 );
+const breadcrumbTitle = computed(() =>
+  route.path === '/approvals' && auth.user?.roleCode === 'ADMIN'
+    ? '账号申请审核'
+    : route.meta.title,
+);
 /** 处理个人中心、改密及退出菜单操作。 */
 async function command(value) {
   if (value === 'account') return router.push('/account');
@@ -50,7 +55,7 @@ async function command(value) {
 }
 </script>
 <template>
-  <div class="app-shell" :class="{ compact }" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft }">
+  <div class="app-shell" :class="{ compact }" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft, '--crm-sidebar': identity.sidebar || '#172d4d' }">
     <a class="skip-link" href="#main-content">跳至主要内容</a>
     <aside class="app-sidebar">
       <router-link class="sidebar-brand" to="/workbench" aria-label="CRM 工作台">
@@ -95,7 +100,7 @@ async function command(value) {
           </el-button>
           <el-breadcrumb separator="/">
             <el-breadcrumb-item>{{ identity.focus }}</el-breadcrumb-item>
-            <el-breadcrumb-item>{{ route.meta.title }}</el-breadcrumb-item>
+            <el-breadcrumb-item>{{ breadcrumbTitle }}</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
         <div class="header-account">
@@ -122,7 +127,7 @@ async function command(value) {
       <footer class="app-footer">CRM 客户关系管理系统 <span>让协作更顺畅，让关系更长久</span>
       </footer>
     </div>
-    <el-drawer v-model="drawer" direction="ltr" size="270px" class="nav-drawer" title="主导航" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft }">
+    <el-drawer v-model="drawer" direction="ltr" size="270px" class="nav-drawer" title="主导航" :style="{ '--role-accent': identity.color, '--role-soft': identity.soft, '--crm-sidebar': identity.sidebar || '#172d4d' }">
       <template #header><BrandMark light /></template>
       <div class="role-card">
         <span class="role-card-icon"><AppIcon :name="identity.icon" /></span>

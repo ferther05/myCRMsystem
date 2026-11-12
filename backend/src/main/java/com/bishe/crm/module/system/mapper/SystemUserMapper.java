@@ -54,6 +54,16 @@ public interface SystemUserMapper extends BaseMapper<SystemUser> {
         @Param("now") LocalDateTime now
     );
 
+    /** 用户明确跳过首次提示；保留密码哈希，撤销旧会话。 */
+    @Update("UPDATE sys_user SET must_change_password=0,version=version+1,updated_at=#{now} " +
+        "WHERE id=#{id} AND version=#{version} AND must_change_password=1 AND account_status='ACTIVE'")
+    int skipPasswordPrompt(@Param("id") Long id, @Param("version") long version, @Param("now") LocalDateTime now);
+
+    /** 与跳过决定同事务保存审计，不伪造密码已修改。 */
+    @Insert("INSERT INTO crm_operation_log(biz_type,biz_id,action_code,operator_id,operator_team_id,occurred_at,reason) " +
+        "VALUES('USER',#{id},'PASSWORD_PROMPT_SKIPPED',#{id},#{team},#{now},'用户选择暂不修改初始密码，原密码保持不变')")
+    int insertSkipAudit(@Param("id") Long id, @Param("team") Long team, @Param("now") LocalDateTime now);
+
     /** 提升账号会话版本使旧令牌失效。 */
     @Update(
         "UPDATE sys_user SET version=version+1, updated_at=#{now} " +

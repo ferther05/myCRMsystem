@@ -3,8 +3,8 @@
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '@/store/auth';
-import { modules, canVisit } from '@/router/modules';
-import { pagePresentation } from '@/utils/page-presentation';
+import { navigationFor } from '@/utils/role-workspaces';
+
 import AppIcon from '@/components/AppIcon.vue';
 import TaskNotificationBadge from '@/components/TaskNotificationBadge.vue';
 import { useTaskNotificationsStore } from '@/store/task-notifications';
@@ -13,24 +13,15 @@ const emit = defineEmits(['navigate']);
 const route = useRoute();
 const auth = useAuthStore();
 const notifications = useTaskNotificationsStore();
-const groups = computed(
-  /* 按角色及菜单分组生成侧栏导航。 */ () => {
-    const items = modules.filter(
-      /* 按当前业务条件筛选记录。 */ (item) => canVisit(item, auth.user?.roleCode),
-    );
-    return [...new Set(items.map(/* 将集合条目转换为所需的展示数据。 */ (item) => item.group))].map(
-      /* 将集合条目转换为所需的展示数据。 */ (title) => ({
-        title,
-        items: items.filter(/* 按当前角色访问范围筛选记录。 */ (item) => item.group === title),
-      }),
-    );
-  },
+const groups = computed(() => navigationFor(auth.user?.roleCode));
+const activePath = computed(() =>
+  auth.user?.roleCode === 'ADMIN' && route.path === '/approvals' ? '/system' : route.path,
 );
 </script>
 <template>
   <nav aria-label="主导航">
     <el-menu
-      :default-active="route.path"
+      :default-active="activePath"
       :collapse="props.compact"
       :collapse-transition="false"
       router
@@ -39,13 +30,10 @@ const groups = computed(
     >
       <template v-for="group in groups" :key="group.title">
         <div v-if="!compact" class="nav-group">{{ group.title }}</div>
-        <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path" :style="{ '--nav-accent': pagePresentation(item.path).color, '--nav-soft': pagePresentation(item.path).soft }">
+        <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path" :class="{ 'is-priority': item.primary }">
           <AppIcon :name="item.icon" />
           <TaskNotificationBadge v-if="item.path === '/tasks'" class="nav-task-badge" :unread-count="notifications.unreadCount" :pending-count="notifications.pendingCount" />
-          <template #title>
-            <span>{{ item.title }}</span>
-            <span v-if="!item.ready" class="pending-dot" aria-label="待开发" />
-          </template>
+          <template #title><span>{{ item.title }}</span><small v-if="item.primary && !compact" class="priority-label">常用</small><span v-if="!item.ready" class="pending-dot" aria-label="待开发" /></template>
         </el-menu-item>
       </template>
     </el-menu>
@@ -55,11 +43,13 @@ const groups = computed(
 .sidebar-menu {
   --el-menu-bg-color: transparent;
   --el-menu-text-color: #c0cde0;
-  --el-menu-hover-bg-color: #223b5c;
+  --el-menu-hover-bg-color: #ffffff14;
   --el-menu-active-color: #fff;
   border: 0;
   width: 100%;
 }
+.priority-label { margin-left:8px; font-size:10px; color:inherit; opacity:.8; }
+.is-priority { color:#fff; font-weight:600; background:#ffffff09; }
 .nav-group {
   font-size: 10px;
   color: #9aacc6;
@@ -83,9 +73,9 @@ const groups = computed(
 .el-menu--collapse .nav-task-badge { right:3px; top:3px; }
 .el-menu--collapse .nav-task-badge.is-dot { right:6px; top:6px; }
 .el-menu-item.is-active {
-  background: var(--nav-soft);
-  color: var(--nav-accent);
-  box-shadow: inset 3px 0 var(--nav-accent);
+  background: var(--role-soft);
+  color: var(--role-accent);
+  box-shadow: inset 3px 0 var(--role-accent);
   font-weight:600;
 }
 .el-menu-item .el-icon {

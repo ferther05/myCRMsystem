@@ -1,180 +1,117 @@
-<!-- 文件作用：按角色展示三个常用入口、其他功能与默认收起的演示指引。 -->
+<!-- 文件作用：三角色工作台，共享授权查询，按工作重点组织入口、指标与业务事项。 -->
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { ArrowRight, Refresh } from '@element-plus/icons-vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ElDialog, ElTabs, ElTabPane } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
 import AppIcon from '@/components/AppIcon.vue';
+import WorkItemList from '@/components/WorkItemList.vue';
 import { useAuthStore } from '@/store/auth';
 import { rolePresentation } from '@/utils/page-presentation';
-import { modules, canVisit } from '@/router/modules';
-import { getHealth } from '@/api/health';
+import { workspaces } from '@/utils/role-workspaces';
+import * as api from '@/api/workbench';
 
-const auth = useAuthStore();
+const auth = useAuthStore(), router = useRouter();
 const identity = computed(() => rolePresentation[auth.user?.roleCode]);
-// 入口只定位已实现页面，不生成统计或替代业务审批。
-const workspaces = {
-  SPECIALIST: {
-    focus: '先处理提醒，再跟进客户、推进商机',
-    boundary: '办理本人及授权业务；阶段条件满足后由系统推进。',
-    entries: [
-      { path: '/tasks', title: '我的待办', icon: 'List', description: '查看到期跟进、客户预警与回款提醒，进入业务办理。' },
-      { path: '/customers', title: '客户跟进', icon: 'User', description: '查联系人与往来记录，补充沟通结果和下一步安排。' },
-      { path: '/opportunities', title: '商机与回款', icon: 'TrendCharts', description: '按当前阶段补齐跟进、报价、合作确认及签约回款。' },
-    ],
-    steps: [
-      { path: '/tasks', title: '从提醒找到业务', detail: '选一条待办，点“去处理”；标记已读不会完成业务。' },
-      { path: '/customers', title: '说明客户关系', detail: '展示联系人、沟通历史和下一步安排，解释这位客户由谁维护。' },
-      { path: '/opportunities', title: '提交阶段材料', detail: '在商机详情查看当前阶段缺项，提交有效跟进；等待经理或管理员核验。' },
-      { path: '/opportunities?view=contracts', title: '继续签约与回款', detail: '经理核验后继续登记合同、上传签署文件、提交回款计划和登记实际到账。' },
-    ],
-  },
-  MANAGER: {
-    focus: '先核验关键材料，再协调团队业务',
-    boundary: '查看本团队，核验跟进及合同、审批回款计划；不手动切换商机阶段。',
-    entries: [
-      { path: '/tasks?type=CONTRACT_REVIEW', title: '合同核验待办', icon: 'CircleCheck', description: '定位待核对的登记表与最新签署文件，确认或退回补充。' },
-      { path: '/opportunities', title: '团队商机', icon: 'TrendCharts', description: '核验本阶段跟进、检查卡点，按需协调协作与合同回款。' },
-      { path: '/analytics', title: '团队业绩', icon: 'DataAnalysis', description: '先看应收与逾期，再查漏斗和必要的过程指标。' },
-    ],
-    steps: [
-      { path: '/opportunities', title: '核验同一条商机', detail: '打开专员刚提交的商机，在“跟进与核验”确认或打回，查看系统重算后的阶段与缺项。' },
-      { path: '/opportunities?view=contracts', title: '核对合同及回款计划', detail: '核对登记表、最新签署版本；按合同当前状态处理计划审批，退回时说明原因。' },
-      { path: '/team', title: '说明团队分工', detail: '查看本团队成员；商机协作在该商机详情处理，不扩大客户档案权限。' },
-      { path: '/analytics', title: '只讲一个团队问题', detail: '选定时间范围，说明一项逾期或阶段卡点；需要时再展开过程质量分析。' },
-    ],
-  },
-  ADMIN: {
-    focus: '先维护账号与归属，再检查系统运行',
-    boundary: '维护全局账号、客户与商机分配；异常纠正保留原因和记录。',
-    entries: [
-      { path: '/system', title: '账号与团队配置', icon: 'Setting', description: '创建账号、配置角色团队，处理停用及密码重置。' },
-      { path: '/customers', title: '客户录入与分配', icon: 'User', description: '录入客户并指定负责人，需要时办理同团队完整交接。' },
-      { path: '/tasks?tab=jobs', title: '运行与审计', icon: 'List', description: '先检查任务执行结果，再切换操作记录追溯业务变化。' },
-    ],
-    steps: [
-      { path: '/system', title: '交代角色与归属', detail: '展示三角色账号和团队范围；不以管理员代办所有销售操作。' },
-      { path: '/customers', title: '展示资源分配', detail: '展示客户负责人、团队与公海规则；创建商机仍从商机管理办理。' },
-      { path: '/tasks?tab=operations', title: '追溯刚才的业务', detail: '按业务对象查看操作人与字段变化，说明录入、核验及到账留下的记录。' },
-      { path: '/tasks?tab=jobs', title: '检查自动机制', detail: '只查看扫描结果与失败项，必要时查看回收页面；演示不必执行扫描或批量交接。' },
-    ],
-  },
-};
 const workspace = computed(() => workspaces[auth.user?.roleCode]);
-// 业务捷径复用菜单角色限制；未知角色不展示捷径。
-const entries = computed(() => (workspace.value?.entries || []).filter((entry) => {
-  const module = modules.find((item) => item.path === entry.path.split('?')[0]);
-  return module && canVisit(module, auth.user?.roleCode);
-}));
-const otherSpaces = computed(() => modules.filter((item) => item.path !== '/workbench'
-  && canVisit(item, auth.user?.roleCode)
-  && !entries.value.some((entry) => entry.path === item.path)));
-const health = ref(null);
-const loading = ref(true);
-const failure = ref('');
-
-/** 刷新实际连接结果，失败时清空旧状态并允许重试。 */
-async function checkHealth() {
-  loading.value = true;
-  failure.value = '';
-  try {
-    health.value = await getHealth();
-  } catch (error) {
-    health.value = null;
-    failure.value = error.message;
-  } finally {
-    loading.value = false;
-  }
+const data = ref(null), loading = ref(false), failure = ref('');
+const category = ref(''), rows = ref([]), total = ref(0), rowLoading = ref(false), rowFailure = ref('');
+const attentionCategory = ref('STAGNANT'), attention = ref([]), attentionFailure = ref(''), attentionLoading = ref(false);
+const moreOpen = ref(false), moreCategory = ref(''), morePage = ref(1), moreRows = ref([]), moreTotal = ref(0), moreLoading = ref(false), moreFailure = ref('');
+let generation = 0, rowGeneration = 0, attentionGeneration = 0, moreGeneration = 0, lastRefresh = 0;
+const titles = computed(() => Object.fromEntries((data.value?.categories || []).map(item => [item.key, item])));
+const mainCategories = computed(() => (workspace.value?.categories || []).map(key => titles.value[key]).filter(Boolean));
+const stamp = computed(() => data.value?.generatedAt?.replace('T', ' ').slice(0, 19));
+/** 金额显示两位小数，计数显示整数。 */
+const metricValue = item => Number(item.value || 0).toLocaleString('zh-CN', { maximumFractionDigits: item.unit === '元' ? 2 : 0, minimumFractionDigits: item.unit === '元' ? 2 : 0 });
+/** 获取汇总；角色切换或卸载后旧请求不能覆盖当前界面。 */
+async function refresh() {
+  const current = ++generation;
+  lastRefresh = Date.now(); loading.value = true; failure.value = ''; data.value = null;
+  try { const result = await api.overview(); if (current === generation) data.value = result; }
+  catch (e) { if (current === generation) failure.value = e.message; }
+  finally { if (current === generation) loading.value = false; }
+  if (current === generation) await Promise.all([loadRows(), workspace.value?.attention ? loadAttention() : Promise.resolve()]);
 }
-onMounted(checkHealth);
+/** 默认仅预览五项，完整授权总数来自服务端。 */
+async function loadRows() {
+  const current = ++rowGeneration; rowLoading.value = true; rowFailure.value = ''; rows.value = []; total.value = 0;
+  try { const result = await api.items({ category: category.value, page: 1, size: 10 }); if (current === rowGeneration) { rows.value = result.list.slice(0, 5); total.value = result.total; } }
+  catch (e) { if (current === rowGeneration) rowFailure.value = e.message; }
+  finally { if (current === rowGeneration) rowLoading.value = false; }
+}
+/** 经理关注项单独加载，局部失败不阻断核验列表。 */
+async function loadAttention() {
+  const current = ++attentionGeneration; attention.value = []; attentionFailure.value = ''; attentionLoading.value = true;
+  try { const result = await api.items({ category: attentionCategory.value, page: 1, size: 10 }); if (current === attentionGeneration) attention.value = result.list.slice(0, 3); }
+  catch (e) { if (current === attentionGeneration) attentionFailure.value = e.message; }
+  finally { if (current === attentionGeneration) attentionLoading.value = false; }
+}
+/** 更多窗口固定十条分页，翻页不回到第一页。 */
+async function loadMore() {
+  const current = ++moreGeneration; moreLoading.value = true; moreFailure.value = ''; moreRows.value = [];
+  try { const result = await api.items({ category: moreCategory.value, page: morePage.value, size: 10 }); if (current === moreGeneration) { moreRows.value = result.list; moreTotal.value = result.total; } }
+  catch (e) { if (current === moreGeneration) { moreFailure.value = e.message; moreTotal.value = 0; } }
+  finally { if (current === moreGeneration) moreLoading.value = false; }
+}
+/** 打开对应分类的完整十条分页清单。 */
+function showMore(key) { moreCategory.value = key; morePage.value = 1; moreTotal.value = 0; moreOpen.value = true; void loadMore(); }
+/** 工作项只导航至原业务，不提供绕过核验的本地完成按钮。 */
+function openItem(item) { if (item.target?.startsWith('/') && !item.target.startsWith('//')) void router.push(item.target); }
+/** 常用入口定位原页面或当前核验队列。 */
+function enter(entry) { if (entry.category) { if (category.value === entry.category) void loadRows(); else category.value = entry.category; document.getElementById('work-items')?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); } else void router.push(entry.path); }
+/** 回到首页或业务提交后重查状态，保持已读未办事项仍可见。 */
+function refreshIfVisible() { if (!document.hidden && Date.now() - lastRefresh > 1500) void refresh(); }
+watch(category, (value, old) => { if (old && value !== old) void loadRows(); });
+watch(attentionCategory, () => { if (workspace.value?.attention) void loadAttention(); });
+watch(() => [auth.user?.id, auth.user?.roleCode, auth.user?.teamId, auth.user?.version], () => {
+  ++generation; ++rowGeneration; ++attentionGeneration; ++moreGeneration;
+  data.value = null; rows.value = []; attention.value = []; moreOpen.value = false;
+  category.value = workspace.value?.defaultCategory || ''; if (category.value) void refresh();
+}, { immediate: true });
+onMounted(() => { window.addEventListener('focus', refreshIfVisible); window.addEventListener('crm:business-updated', refreshIfVisible); });
+onBeforeUnmount(() => { ++generation; ++rowGeneration; ++attentionGeneration; ++moreGeneration; window.removeEventListener('focus', refreshIfVisible); window.removeEventListener('crm:business-updated', refreshIfVisible); });
 </script>
-
 <template>
   <div class="workbench-page">
-    <PageHeading :title="`${identity?.title || '我的'}工作台`" :description="workspace?.focus || '查看当前工作入口'" />
-    <section class="identity-strip panel" aria-label="当前工作重点">
-      <span class="identity-icon"><AppIcon :name="identity?.icon || 'House'" /></span>
-      <div class="identity-copy">
-        <h2>{{ auth.user?.realName }}<span>{{ identity?.scope }}</span></h2>
-        <p>{{ auth.user?.teamName || '系统管理工作空间' }} · {{ workspace?.boundary }}</p>
-      </div>
-      <router-link to="/tasks" class="all-todos">全部待办 <el-icon><ArrowRight /></el-icon></router-link>
+    <PageHeading :title="`${identity?.title || '我的'}工作台`" :description="`${auth.user?.realName || ''} · ${data?.scope || identity?.scope || ''}`"><el-button :loading="loading" @click="refresh">刷新</el-button></PageHeading>
+    <section class="panel work-overview" aria-label="工作概览">
+      <header class="overview-heading"><h2>{{ workspace?.focus }}</h2><small v-if="stamp">更新于 {{ stamp }}</small></header>
+      <div v-loading="loading" class="metric-grid" aria-label="当前工作摘要"><button v-for="item in data?.metrics || []" :key="item.key" class="metric" :title="item.note" @click="item.category ? showMore(item.category) : router.push('/analytics')"><span>{{ item.title }}</span><div><strong>{{ metricValue(item) }}</strong><small>{{ item.unit }}</small></div></button></div>
+      <nav class="quick-entries" aria-label="本角色常用工作"><el-button v-for="entry in workspace?.entries" :key="entry.title" :title="entry.description" @click="enter(entry)"><AppIcon :name="entry.icon" />{{ entry.title }}</el-button></nav>
+      <el-alert v-if="failure" :title="failure" type="error" show-icon :closable="false" /><p v-if="failure" class="muted">汇总暂不可用，仍可使用上方入口。<el-button link type="primary" @click="refresh">重试</el-button></p>
     </section>
-
-    <section aria-labelledby="priority-title">
-      <h2 id="priority-title" class="section-title">常用工作入口</h2>
-      <div class="priority-grid">
-        <router-link v-for="(item, index) in entries" :key="item.path" :to="item.path" class="priority-card panel">
-          <div class="card-top"><span class="entry-icon"><AppIcon :name="item.icon" /></span><span class="entry-order">{{ index === 0 ? '优先查看' : '常用操作' }}</span></div>
-          <h3>{{ item.title }}</h3>
-          <p>{{ item.description }}</p>
-          <span class="entry-link">进入处理 <el-icon><ArrowRight /></el-icon></span>
-        </router-link>
-      </div>
+    <div class="work-columns" :class="{ paired: workspace?.attention }">
+    <section id="work-items" class="panel work-section" aria-label="主要工作事项"><header><h2>{{ auth.user?.roleCode === 'SPECIALIST' ? '今天的工作' : auth.user?.roleCode === 'MANAGER' ? '待我处理' : '需要关注' }}</h2><el-button link type="primary" @click="showMore(category)">查看全部 {{ total }} 项 →</el-button></header>
+      <el-tabs v-model="category"><el-tab-pane v-for="item in mainCategories" :key="item.key" :name="item.key" :label="`${item.title} ${item.count}`" /></el-tabs>
+      <WorkItemList :rows="rows" :loading="rowLoading" :failure="rowFailure" @open="openItem" @retry="loadRows" />
+      <p class="muted list-note">预览5项，点击事项进入详情处理。</p>
     </section>
-
-    <details class="secondary-panel panel">
-      <summary>其他功能入口<span>按需展开</span></summary>
-      <nav class="other-grid" aria-label="其他功能入口">
-        <router-link v-for="item in otherSpaces" :key="item.path" :to="item.path"><AppIcon :name="item.icon" />{{ item.title }}<el-icon><ArrowRight /></el-icon></router-link>
-      </nav>
-    </details>
-
-    <details v-if="workspace" class="demo-panel panel">
-      <summary>本角色演示顺序<span>演示时展开</span></summary>
-      <p class="demo-note">建议围绕同一客户、同一商机接力：专员说明业务 → 经理核验 → 专员补齐签约回款 → 管理员追溯。以下是操作指引，不代表业务已完成。</p>
-      <ol class="demo-steps">
-        <li v-for="step in workspace.steps" :key="step.title"><div><strong>{{ step.title }}</strong><p>{{ step.detail }}</p></div><router-link :to="step.path">去查看 <el-icon><ArrowRight /></el-icon></router-link></li>
-      </ol>
-    </details>
-
-    <footer class="workbench-footer">
-      <div class="connection" aria-live="polite">
-        <span v-if="loading">正在检查连接…</span>
-        <span v-else-if="health?.status === 'UP'">连接正常</span>
-        <span v-else class="connection-error" role="alert">暂时无法连接：{{ failure || '请重新检查连接' }}</span>
-        <el-button text :icon="Refresh" :loading="loading" aria-label="刷新连接状态" @click="checkHealth">{{ failure ? '重试' : '刷新' }}</el-button>
-      </div>
-      <div class="account-links"><router-link to="/account">个人中心</router-link><router-link to="/change-password">修改密码</router-link></div>
-    </footer>
+    <section v-if="workspace?.attention" class="panel work-section" aria-label="团队需关注"><header><h2>团队需关注</h2><el-button link type="primary" @click="showMore(attentionCategory)">完整清单 →</el-button></header><el-tabs v-model="attentionCategory"><el-tab-pane name="STAGNANT" label="停滞商机" /><el-tab-pane name="OVERDUE" label="逾期回款" /></el-tabs><WorkItemList :rows="attention" :loading="attentionLoading" :failure="attentionFailure" @open="openItem" @retry="loadAttention" /></section>
+    </div>
+    <el-dialog v-model="moreOpen" :title="titles[moreCategory]?.title || '完整工作清单'" width="850px" class="work-items-dialog" @closed="++moreGeneration"><WorkItemList :rows="moreRows" :loading="moreLoading" :failure="moreFailure" @open="openItem" @retry="loadMore" /><el-pagination v-model:current-page="morePage" :page-size="10" :total="moreTotal" layout="total, prev, pager, next" @current-change="loadMore" /></el-dialog>
   </div>
 </template>
-
 <style scoped>
-.workbench-page { max-width: 1200px; margin: 0 auto; }
-.identity-strip { display: flex; align-items: center; gap: 16px; padding: 20px 24px; border-left: 4px solid var(--role-accent); }
-.identity-icon, .entry-icon { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: var(--role-soft); color: var(--role-accent); font-size: 20px; flex-shrink: 0; }
-.identity-copy { min-width: 0; flex: 1; }
-.identity-copy h2 { margin: 0 0 6px; font-size: 17px; }
-.identity-copy h2 span { display: inline-block; margin-left: 12px; color: var(--crm-text-secondary); font-size: 12px; font-weight: 400; }
-.identity-copy p { margin: 0; color: var(--crm-text-secondary); font-size: 13px; line-height: 1.7; }
-.all-todos, .entry-link, .demo-steps a { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; white-space: nowrap; }
-.section-title { font-size: 15px; margin: 24px 0 12px; }
-.priority-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.priority-card { display: flex; flex-direction: column; padding: 22px; color: var(--crm-text-main); transition: border-color .15s; }
-.priority-card:hover { border-color: var(--role-accent); }
-.card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.entry-order { color: var(--crm-text-secondary); font-size: 12px; }
-.priority-card h3 { margin: 18px 0 9px; font-size: 17px; }
-.priority-card p { flex: 1; margin: 0 0 18px; font-size: 13px; line-height: 1.8; color: var(--crm-text-secondary); }
-.entry-link { color: var(--crm-color-brand); }
-.secondary-panel, .demo-panel { margin-top: 16px; padding: 0 22px; }
-summary { padding: 17px 0; cursor: pointer; font-size: 14px; font-weight: 600; }
-summary span { margin-left: 12px; font-size: 12px; color: var(--crm-text-secondary); font-weight: 400; }
-.other-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 2px 0 18px; }
-.other-grid a { display: flex; align-items: center; gap: 8px; padding: 12px; color: var(--crm-text-main); background: var(--crm-bg-page); border-radius: 6px; font-size: 13px; }
-.other-grid a .el-icon:last-child { margin-left: auto; }
-.demo-note { color: var(--crm-text-secondary); font-size: 13px; line-height: 1.8; margin: 0 0 10px; }
-.demo-steps { margin: 0; padding: 0 0 8px 22px; }
-.demo-steps li { padding: 12px 0 12px 5px; border-top: 1px solid var(--crm-border); }
-.demo-steps li::marker { color: var(--role-accent); font-weight: 600; }
-.demo-steps strong { font-size: 14px; }
-.demo-steps p { font-size: 13px; color: var(--crm-text-secondary); line-height: 1.8; margin: 6px 0; }
-.workbench-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 14px; color: var(--crm-text-secondary); font-size: 12px; }
-.connection { display: flex; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
-.connection-error { color: var(--crm-color-danger); }
-.account-links { display: flex; gap: 18px; }
-.priority-card:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--role-accent); outline-offset: 3px; }
-@media (prefers-reduced-motion: reduce) { .priority-card { transition: none; } }
-@media (max-width: 800px) { .priority-grid { grid-template-columns: 1fr; gap: 12px; } .priority-card { padding: 18px; } .priority-card h3 { margin-top: 12px; } .other-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 480px) { .identity-strip { padding: 16px; gap: 10px; flex-wrap: wrap; } .identity-copy { flex-basis: calc(100% - 54px); } .identity-copy h2 span { display: block; margin: 5px 0 0; } .other-grid { grid-template-columns: 1fr; } .secondary-panel, .demo-panel { padding: 0 16px; } }
+.workbench-page { max-width:1200px; margin:0 auto; }
+.work-overview { padding:18px 22px; margin-bottom:18px; }
+.overview-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.overview-heading h2 { font-size:15px; margin:0; }
+.overview-heading>small { color:var(--crm-text-secondary); font-size:11px; }
+.metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; margin:18px 0; min-height:20px; }
+.metric { text-align:left; padding:0 18px; color:var(--crm-text-main); font:inherit; cursor:pointer; background:transparent; border:0; border-left:1px solid var(--crm-border); min-width:0; }
+.metric:first-child { border-left:0; padding-left:0; }
+.metric>span { font-size:13px; color:var(--crm-text-secondary); }
+.metric strong { font-size:clamp(21px,2vw,28px); font-weight:600; overflow-wrap:anywhere; }
+.metric div { margin:9px 0 0; }.metric small { margin-left:7px; }
+.quick-entries { display:flex; gap:10px; flex-wrap:wrap; border-top:1px solid var(--crm-border); padding-top:14px; }
+.quick-entries .el-button { margin:0; }.quick-entries .el-icon { margin-right:7px; }
+.work-columns.paired { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:start; }
+.work-section { padding:18px 22px; margin-bottom:18px; min-width:0; }
+.work-section header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.work-section h2 { font-size:16px; margin:0 0 8px; }.muted { color:var(--crm-text-secondary); font-size:12px; line-height:1.7; }.list-note { margin:10px 0 0; }.el-pagination { margin-top:20px; max-width:100%; overflow:auto; }
+button:focus-visible { outline:2px solid var(--role-accent); outline-offset:3px; }.metric:hover { color:var(--role-accent); }
+@media(max-width:1000px){.work-columns.paired{grid-template-columns:1fr;gap:0;}}
+@media(max-width:600px){.work-overview,.work-section{padding:14px;}.overview-heading{align-items:flex-start;flex-direction:column;gap:6px;}.metric-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 0;}.metric:nth-child(odd){border-left:0;padding-left:0;}.work-section header{flex-wrap:wrap;gap:0;}}
 </style>
+<style>.work-items-dialog{max-width:calc(100vw - 24px);}</style>

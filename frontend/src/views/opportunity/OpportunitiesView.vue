@@ -1,6 +1,8 @@
 <!-- 文件作用：商机列表、阶段门槛、业务证据、协作和合同登记入口。 -->
 <script setup>
+import RecentBadge from '@/components/RecentBadge.vue';
 import { useAutoQuery } from '@/composables/useAutoQuery';
+import { useDetailViewport } from '@/composables/useDetailViewport';
 import OpportunityDetailActions from '@/components/OpportunityDetailActions.vue';
 import ContractWorkspace from '@/components/ContractWorkspace.vue';
 import DetailSection from '@/components/DetailSection.vue';
@@ -29,6 +31,7 @@ import {
 } from 'element-plus';
 import { Plus, Search, Refresh, Edit, UserFilled, Document, Clock } from '@element-plus/icons-vue';
 import PageHeading from '@/components/PageHeading.vue';
+import { rolePageCopy } from '@/utils/role-workspaces';
 import DataTable from '@/components/DataTable.vue';
 import { useAuthStore } from '@/store/auth';
 import { listCustomers, listCustomerOwners, reviewFollowRecord } from '@/api/customers';
@@ -91,12 +94,7 @@ async function completeRequirement(requirement) {
   }
 }
 const pendingStageFollow = computed(() => detail.value?.followRecords?.find(item => canReviewFollow(item) && item.opportunityStageCode === detail.value.stageCode && item.opportunityStageSeq === detail.value.stageSeq));
-const narrowDetail = ref(false);
-let detailMedia;
-/** 窄屏改为顶部分页导航，保留全部页面入口。 */
-function updateDetailViewport() { narrowDetail.value = detailMedia.matches; }
-onMounted(() => { detailMedia = window.matchMedia('(max-width: 700px)'); updateDetailViewport(); detailMedia.addEventListener('change', updateDetailViewport); });
-onUnmounted(() => detailMedia?.removeEventListener('change', updateDetailViewport));
+const narrowDetail = useDetailViewport();
 const form = reactive({});
 const owners = ref([]),
   customerPage = ref(1),
@@ -215,18 +213,22 @@ const { search } = useAutoQuery({
   filters: () => ({ ...filters }), page, size, load,
   invalidate: () => { ++generation; loading.value = true; rows.value = []; },
 });
-/** 加载所选记录详情并打开详情窗口。 */
+let detailRequest = 0;
+watch(detailOpen, open => { if (!open) { ++detailRequest; followDetail.value = null; } });
+onUnmounted(() => { ++detailRequest; ++generation; ++routeRequest; });
+/** 加载所选记录详情，快速切换对象时忽略旧请求。 */
 async function openDetail(row) {
+  const current = ++detailRequest;
   if (String(detail.value?.id) !== String(row.id) || !detailOpen.value) { tab.value = 'stage'; followDetail.value = null; selectedCollaborator.value = null; clearHighlight(); }
   detailLoading.value = true;
   detailOpen.value = true;
   try {
-    detail.value = await api.getOpportunity(row.id);
+    const result = await api.getOpportunity(row.id);
+    if (current === detailRequest) detail.value = result;
   } catch (error) {
-    ElMessage.error(error.message);
-    detailOpen.value = false;
+    if (current === detailRequest) { ElMessage.error(error.message); detailOpen.value = false; }
   } finally {
-    detailLoading.value = false;
+    if (current === detailRequest) detailLoading.value = false;
   }
 }
 /** 按负责人和关键词分页查询候选客户并忽略过期响应。 */
@@ -403,6 +405,10 @@ async function save() {
       );
     } else if (mode === 'QUOTE') {
       ElMessage.success('报价已保存，请查看当前阶段及必需要求');
+    } else if (mode === 'follow') {
+      const effective = !['NO_RESPONSE', 'NOT_CONNECTED'].includes(payload.resultCode);
+      ElMessage.success(!effective ? '跟进已留痕，不计为有效跟进' :
+        ['ADMIN', 'MANAGER'].includes(auth.user?.roleCode) ? '有效跟进已保存并自动核验通过' : '有效跟进已保存，待经理或管理员核验');
     } else ElMessage.success('保存成功');
   } catch (error) {
     formError.value = error.message;
@@ -501,11 +507,22 @@ async function reviewFollow(item, pass) {
   }
 }
 /** 支持从客户详情跳转指定商机。 */
+let routeRequest = 0;
+/** 业务详情重新授权后，仅接受固定页签和该商机内真实存在的跟进编号。 */
 async function openRouteOpportunity() {
-  if (route.query.id && /^\d+$/.test(String(route.query.id)))
-    await openDetail({ id: route.query.id });
+  const current = ++routeRequest, id = route.query.id;
+  if (!id || !/^\d+$/.test(String(id))) return;
+  await openDetail({ id });
+  if (current !== routeRequest || String(detail.value?.id) !== String(id) || !detailOpen.value) return;
+  if (['stage', 'overview', 'evidence', 'follow', 'records'].includes(route.query.section)) tab.value = route.query.section;
+  const followId = String(route.query.followRecordId || '');
+  if (/^\d+$/.test(followId)) {
+    const item = detail.value.followRecords?.find(row => String(row.id) === followId);
+    if (item) { tab.value = 'follow'; followDetail.value = item; }
+    else ElMessage.info('这条跟进已不可见，请查看最新业务状态。');
+  }
 }
-watch(() => route.query.id, openRouteOpportunity);
+watch(() => [route.query.id, route.query.section, route.query.followRecordId], openRouteOpportunity);
 onMounted(async () => {
   await load();
   await openRouteOpportunity();
@@ -514,7 +531,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <PageHeading title="商机管理" eyebrow="OPPORTUNITY">
+    <PageHeading :title="rolePageCopy[auth.user?.roleCode]?.opportunities[0] || '商机管理'" :description="rolePageCopy[auth.user?.roleCode]?.opportunities[1]" eyebrow="OPPORTUNITY">
       <el-button
         v-if="workspaceTab === 'opportunities' && auth.user?.roleCode === 'ADMIN'"
         :icon="Clock"
@@ -566,7 +583,7 @@ onMounted(async () => {
       v-model:page="page"
       @retry="load"
     >
-      <el-table-column label="商机 / 客户" min-width="220"><template #default="{ row }"><strong>{{ row.opportunityName }}</strong><div class="muted">{{ row.customerName }}</div></template></el-table-column>
+      <el-table-column label="商机 / 客户" min-width="220"><template #default="{ row }"><strong>{{ row.opportunityName }}</strong><div class="muted">{{ row.customerName }}<RecentBadge :created-at="row.createdAt" /></div></template></el-table-column>
 
       <el-table-column label="所属负责人 / 团队" min-width="170">
         <template #default="{ row }">
@@ -607,10 +624,10 @@ onMounted(async () => {
     </DataTable>
     </div>
 
-    <el-drawer v-model="detailOpen" title="商机详情" size="min(1120px, 100%)" class="opportunity-detail-drawer">
+    <el-drawer v-model="detailOpen" title="商机详情" size="min(1120px, 100%)" class="opportunity-detail-drawer business-detail-drawer">
       <div v-if="detailLoading" v-loading="true" class="loading" />
       <template v-else-if="detail">
-        <div class="detail-head">
+        <div class="detail-head business-detail-head">
           <div>
             <h2>{{ detail.opportunityName }}</h2>
             <p>
@@ -622,7 +639,7 @@ onMounted(async () => {
           <el-tag effect="dark">{{ labels[detail.stageCode] }}</el-tag>
         </div>
         <div ref="actionRoot" class="opportunity-detail-content">
-        <el-tabs v-model="tab" class="opportunity-pages" :tab-position="narrowDetail ? 'top' : 'left'">
+        <el-tabs v-model="tab" class="opportunity-pages business-detail-pages" :tab-position="narrowDetail ? 'top' : 'left'">
           <el-tab-pane name="stage"><template #label><span class="stage-nav-label">阶段推进 <small>主要入口</small></span></template>
             <section class="stage-panel" aria-label="商机阶段与推进要求">
               <div class="stage-title"><strong>当前阶段：{{ labels[detail.stageCode] }}</strong><span>满足条件后自动推进</span></div>
@@ -709,7 +726,7 @@ onMounted(async () => {
                 {{ time(detail.lastEffectiveProgressAt) }}
               </el-descriptions-item></el-descriptions></DetailSection>
 
-<p class="scope-note">待查验跟进仅暂时刷新活跃计时；打回后撤销有效性并重算，历史保留。</p>
+<p class="scope-note">专员有效跟进须经核验；经理/管理员提交的有效跟进自动核验通过。无回应和未接通仅留痕，旧阶段记录不计入本阶段门槛。</p>
           <details class="secondary-disclosure"><summary>结束分支与管理员修正规则</summary><div class="terminal-stages">
             <span>结束分支：</span>
             <el-tag

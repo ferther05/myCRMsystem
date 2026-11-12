@@ -24,6 +24,7 @@ public final class UserRequests {
         @Email @Size(max = 160) String email,
         @NotBlank @Pattern(regexp = "ADMIN|MANAGER|SPECIALIST") String roleCode,
         @Positive Long teamId,
+        @Size(max = 100) String newTeamName,
         @NotBlank @Size(min = 8, max = 64) @Pattern(
             regexp = "^(?=.*[A-Za-z])(?=.*[0-9])[!-~]+$"
         ) String initialPassword

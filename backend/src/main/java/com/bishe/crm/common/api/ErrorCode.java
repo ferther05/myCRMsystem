@@ -11,7 +11,7 @@ public enum ErrorCode {
     LOGIN_FAILED(40101, HttpStatus.UNAUTHORIZED, "账号或密码错误，或账号不可用"),
     TOKEN_INVALID(40102, HttpStatus.UNAUTHORIZED, "登录已失效，请重新登录"),
     FORBIDDEN(40300, HttpStatus.FORBIDDEN, "没有权限执行此操作"),
-    PASSWORD_CHANGE_REQUIRED(40301, HttpStatus.FORBIDDEN, "请先修改初始密码"),
+    PASSWORD_CHANGE_REQUIRED(40301, HttpStatus.FORBIDDEN, "请修改初始密码或选择跳过"),
     PASSWORD_INCORRECT(40002, HttpStatus.BAD_REQUEST, "原密码不正确"),
     PASSWORD_UNCHANGED(40003, HttpStatus.BAD_REQUEST, "新密码不能与原密码相同"),
     ACCOUNT_RULE(40004, HttpStatus.BAD_REQUEST, "账号配置不符合规则，请检查角色、团队或账号状态"),

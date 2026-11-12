@@ -35,9 +35,9 @@ public interface FollowRecordMapper extends BaseMapper<FollowRecord> {
     /** 新增原始跟进记录及有效性信息。 */
     @Insert(
         "INSERT INTO crm_follow_record(customer_id,opportunity_id,opportunity_stage_code,opportunity_stage_seq,contact_id,follow_user_id,record_type,follow_method,content," +
-            "substantive_result,result_code,next_action,next_action_at,is_effective,review_status,followed_at,created_at,version) " +
+            "substantive_result,result_code,next_action,next_action_at,is_effective,review_status,reviewer_id,reviewed_at,review_reason,followed_at,created_at,version) " +
             "VALUES(#{f.customerId},#{f.opportunityId},#{f.opportunityStageCode},#{f.opportunityStageSeq},#{f.contactId},#{f.followUserId},'FOLLOW',#{f.followMethod},#{f.content}," +
-            "#{f.substantiveResult},#{f.resultCode},#{f.nextAction},#{f.nextActionAt},#{f.isEffective},#{f.reviewStatus},#{f.followedAt},#{f.createdAt},0)"
+            "#{f.substantiveResult},#{f.resultCode},#{f.nextAction},#{f.nextActionAt},#{f.isEffective},#{f.reviewStatus},#{f.reviewerId},#{f.reviewedAt},#{f.reviewReason},#{f.followedAt},#{f.createdAt},0)"
     )
     @org.apache.ibatis.annotations.Options(useGeneratedKeys = true, keyProperty = "f.id")
     int insertFollow(@Param("f") FollowRecord record);

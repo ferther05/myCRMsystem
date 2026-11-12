@@ -1,6 +1,8 @@
 <!-- 文件作用：客户私海及公海列表、档案、跟进查验和归属操作。 -->
 <script setup>
+import RecentBadge from '@/components/RecentBadge.vue';
 import { useAutoQuery } from '@/composables/useAutoQuery';
+import { useDetailViewport } from '@/composables/useDetailViewport';
 import DetailSection from '@/components/DetailSection.vue';
 import PagedItems from '@/components/PagedItems.vue';
 import CustomerRecyclePanel from './CustomerRecyclePanel.vue';
@@ -25,6 +27,7 @@ import {
   ElEmpty,
 } from 'element-plus';
 import PageHeading from '@/components/PageHeading.vue';
+import { rolePageCopy } from '@/utils/role-workspaces';
 import DataTable from '@/components/DataTable.vue';
 import CustomerProfileFields from './CustomerProfileFields.vue';
 import ContactFields from './ContactFields.vue';
@@ -75,6 +78,7 @@ const initialFilters = () => ({
 });
 const filters = reactive(initialFilters());
 const moreFilters = ref(false);
+const narrowDetail = useDetailViewport();
 // 收起筛选时仍告知已有条件，避免隐藏条件造成误解。
 const extraFilterCount = computed(() => ['sourceCode','industryCode','region','ownerId'].filter(key => Boolean(filters[key])).length + (filters.tags.length ? 1 : 0));
 const detail = ref(null),
@@ -190,7 +194,11 @@ async function show(row) {
     const result = await api.getCustomer(row.id);
     if (current === detailGeneration) {
       detail.value = result;
-      activeTab.value = result.seaType === 'PRIVATE' ? 'relationship' : 'profile';
+      activeTab.value = 'profile';
+      if (String(route.query.id) === String(row.id) && result.seaType === 'PRIVATE') {
+        const section = route.query.section === 'follow' ? 'follows' : route.query.section;
+        if (['relationship', 'profile', 'recycle', 'opportunities', 'contacts', 'follows'].includes(section) && !(section === 'recycle' && result.readonly)) activeTab.value = section;
+      }
     }
   } catch (error) {
     if (current === detailGeneration) detailError.value = error.message;
@@ -586,7 +594,7 @@ const { search } = useAutoQuery({
   invalidate: () => { ++generation; loading.value = true; rows.value = []; },
 });
 /** 从待办跳转时打开原权限范围内的客户详情。 */
-watch(() => route.query.id, (id) => {
+watch(() => [route.query.id, route.query.section], ([id]) => {
   if (id && /^\d+$/.test(String(id))) void show({ id: Number(id) });
 }, { immediate: true });
 onBeforeUnmount(
@@ -601,11 +609,11 @@ void initialize();
   <div class="customers-page">
     <CustomerHandoverDialog v-if="admin" v-model="handoverOpen" @done="load" />
     <PageHeading
-      :title="sea === 'PUBLIC' ? '客户公海' : '客户管理'"
+      :title="sea === 'PUBLIC' ? '客户公海' : rolePageCopy[auth.user?.roleCode]?.customers[0] || '客户管理'"
       :description="
         sea === 'PUBLIC'
           ? '查看公司公共资源，联系方式由后端脱敏。'
-          : '维护客户档案、联系人及分类标签；专员看本人，经理看团队，管理员看全量。'
+          : rolePageCopy[auth.user?.roleCode]?.customers[1]
       "
     >
         <el-button v-if="admin && sea==='PRIVATE'" @click="handoverOpen=true">批量交接</el-button>
@@ -715,7 +723,7 @@ void initialize();
       v-model:page="page"
       @retry="initialize"
     >
-      <el-table-column prop="customerName" label="客户名称" min-width="230" show-overflow-tooltip />
+      <el-table-column prop="customerName" label="客户名称" min-width="230" show-overflow-tooltip><template #default="{ row }">{{ row.customerName }}<RecentBadge v-if="sea === 'PUBLIC'" :created-at="row.createdAt" /></template></el-table-column>
       <el-table-column v-if="sea !== 'PUBLIC'" label="所属负责人 / 团队" min-width="180">
         <template #default="{ row }">
           <div>{{ row.ownerName || '未分配专员' }}</div>
@@ -752,11 +760,11 @@ void initialize();
         </template>
       </el-table-column>
     </DataTable>
-    <el-drawer v-model="detailOpen" title="客户档案" size="880px" class="customer-drawer">
+    <el-drawer v-model="detailOpen" title="客户详情" size="min(1120px, 100%)" class="customer-drawer business-detail-drawer">
       <div v-if="detailLoading" v-loading="true" class="detail-loading" />
       <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" show-icon />
       <template v-if="detail">
-        <div class="detail-title">
+        <div class="detail-title business-detail-head">
           <div>
             <h2>{{ detail.customerName }}</h2>
             <p v-if="detail.seaType !== 'PUBLIC' && sea !== 'PUBLIC'">
@@ -782,25 +790,10 @@ void initialize();
           :closable="false"
           show-icon
         />
-        <el-tabs v-model="activeTab">
-          <el-tab-pane v-if="detail.seaType === 'PRIVATE'" label="关系维护" name="relationship">
-            <CustomerRelationshipPanel :customer="detail" @contacts="activeTab = 'contacts'" @follows="activeTab = 'follows'" @follow="openFollow" />
-          </el-tab-pane>
-          <el-tab-pane label="档案详情" name="profile">
-<div class="detail-actions">          <el-button
-            v-if="admin && detail.seaType === 'PRIVATE'"
-            type="primary"
-            link
-            @click="openTransfer(detail)"
-            >转交</el-button
-          >
-          <el-button v-if="detail.canEdit" type="primary" link @click="edit(detail)">编辑</el-button>
-          <el-button v-if="detail.canEdit" type="primary" link @click="classify(detail)"
-            >分类标签</el-button
-          >
-          <el-button v-if="detail.canDelete" type="danger" link @click="remove(detail)">删除</el-button>
-</div>
-<DetailSection title="核心档案" emphasis><el-descriptions :column="1" border><el-descriptions-item label="客户名称">
+        <el-tabs v-model="activeTab" class="business-detail-pages customer-pages" :tab-position="narrowDetail ? 'top' : 'left'">
+          <el-tab-pane name="profile"><template #label><span class="primary-detail-nav">客户详情 <small>主要入口</small></span></template>
+
+<DetailSection title="核心档案" emphasis><el-descriptions :column="narrowDetail ? 1 : 2" border><el-descriptions-item label="客户名称">
                 {{ detail.customerName }}
               </el-descriptions-item>
 <el-descriptions-item label="客户等级">
@@ -809,7 +802,7 @@ void initialize();
 <el-descriptions-item label="客户状态">
                 {{ customerStatuses[detail.customerStatus] || detail.customerStatus }}
               </el-descriptions-item></el-descriptions></DetailSection>
-<DetailSection title="联系与分类"><el-descriptions :column="1" border><el-descriptions-item label="主要联系人">
+<DetailSection title="联系与分类"><el-descriptions :column="narrowDetail ? 1 : 2" border><el-descriptions-item label="主要联系人">
                 {{ detail.primaryContactName || '未填写' }}
               </el-descriptions-item>
 <el-descriptions-item label="联系电话">
@@ -832,7 +825,7 @@ void initialize();
                   <span v-if="!detail.tags.length">暂无标签</span>
                 </div>
               </el-descriptions-item></el-descriptions></DetailSection>
-<DetailSection title="企业补充资料" v-if="detail.seaType === 'PRIVATE'"><el-descriptions :column="1" border><el-descriptions-item label="统一社会信用代码">
+<DetailSection title="企业补充资料" v-if="detail.seaType === 'PRIVATE'"><el-descriptions :column="narrowDetail ? 1 : 2" border><el-descriptions-item label="统一社会信用代码">
                   {{ detail.unifiedSocialCreditCode || '未填写' }}
                 </el-descriptions-item>
 <el-descriptions-item label="公司规模">
@@ -841,15 +834,31 @@ void initialize();
 <el-descriptions-item label="客户备注">
                   <span class="pre-wrap">{{ detail.remark || '未填写' }}</span>
                 </el-descriptions-item></el-descriptions></DetailSection>
-<DetailSection title="跟进与时效" v-if="detail.seaType === 'PRIVATE'"><el-descriptions :column="1" border><el-descriptions-item label="回收判定">{{ detail.recycle?.reason || '按当前业务规则判定' }}</el-descriptions-item><el-descriptions-item label="回收截止">{{ displayTime(detail.recycle?.deadlineAt) }}</el-descriptions-item><el-descriptions-item label="首次联系截止">
+<DetailSection title="跟进与时效" v-if="detail.seaType === 'PRIVATE'"><el-descriptions :column="narrowDetail ? 1 : 2" border><el-descriptions-item label="回收判定">{{ detail.recycle?.reason || '按当前业务规则判定' }}</el-descriptions-item><el-descriptions-item label="回收截止">{{ displayTime(detail.recycle?.deadlineAt) }}</el-descriptions-item><el-descriptions-item label="首次联系截止">
                   {{ displayTime(detail.firstContactDeadlineAt) }}
                 </el-descriptions-item>
 <el-descriptions-item label="最近有效跟进">
                   {{ displayTime(detail.lastEffectiveFollowAt) }}
                 </el-descriptions-item></el-descriptions></DetailSection>
-<DetailSection title="建档信息"><el-descriptions :column="1" border><el-descriptions-item label="创建时间（北京时间）">
+<DetailSection title="建档信息"><el-descriptions :column="narrowDetail ? 1 : 2" border><el-descriptions-item label="创建时间（北京时间）">
                 {{ displayTime(detail.createdAt) }}
               </el-descriptions-item></el-descriptions></DetailSection>
+          <div class="detail-actions">          <el-button
+            v-if="admin && detail.seaType === 'PRIVATE'"
+            type="primary"
+            link
+            @click="openTransfer(detail)"
+            >转交</el-button
+          >
+          <el-button v-if="detail.canEdit" type="primary" link @click="edit(detail)">编辑</el-button>
+          <el-button v-if="detail.canEdit" type="primary" link @click="classify(detail)"
+            >分类标签</el-button
+          >
+          <el-button v-if="detail.canDelete" type="danger" link @click="remove(detail)">删除</el-button>
+</div>
+          </el-tab-pane>
+          <el-tab-pane v-if="detail.seaType === 'PRIVATE'" label="关系维护" name="relationship">
+            <CustomerRelationshipPanel :customer="detail" @contacts="activeTab = 'contacts'" @follows="activeTab = 'follows'" @follow="openFollow" />
           </el-tab-pane>
           <el-tab-pane v-if="detail.seaType === 'PRIVATE' && !detail.readonly" label="预警与延期" name="recycle" lazy>
             <CustomerRecyclePanel :customer="detail" @changed="refreshDetail" />

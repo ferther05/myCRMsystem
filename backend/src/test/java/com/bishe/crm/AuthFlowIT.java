@@ -68,6 +68,7 @@ class AuthFlowIT {
     private SystemUserMapper users;
 
     private final List<Long> fixtureUsers = new ArrayList<>();
+    private final List<Long> fixtureTeams = new ArrayList<>();
     private Long teamId;
     private Fixture specialist;
     private String fixtureHash;
@@ -86,6 +87,7 @@ class AuthFlowIT {
             Long.class,
             teamCode
         );
+        fixtureTeams.add(teamId);
         fixtureHash = passwords.encode(OLD_PASSWORD);
         specialist = createUser("SPECIALIST", true, teamId);
     }
@@ -95,12 +97,13 @@ class AuthFlowIT {
     void cleanUp() {
         // 只清理本测试明确记录的唯一主键，不删除既有账号。
         for (Long id : fixtureUsers) {
-            jdbc.update("DELETE FROM crm_operation_log WHERE operator_id=?", id);
+            jdbc.update("DELETE FROM crm_approval WHERE biz_type='USER' AND biz_id=?", id);
+            jdbc.update("DELETE FROM crm_approval WHERE applicant_id=? OR approver_id=?", id, id);
+            jdbc.update("DELETE FROM crm_operation_log WHERE operator_id=? OR biz_id=?", id, id);
+            jdbc.update("UPDATE sys_team SET manager_id=NULL WHERE manager_id=?", id);
             jdbc.update("DELETE FROM sys_user WHERE id=?", id);
         }
-        if (teamId != null) {
-            jdbc.update("DELETE FROM sys_team WHERE id=?", teamId);
-        }
+        for (Long id : fixtureTeams) jdbc.update("DELETE FROM sys_team WHERE id=?", id);
     }
 
     /** 只读验证未使用种子账号的初始密码哈希。 */
@@ -205,6 +208,61 @@ class AuthFlowIT {
         assertThat(newMe.getBody().path("data").path("mustChangePassword").asBoolean()).isFalse();
         assertResponse(request(HttpMethod.GET, "/auth-fixture/read", newToken, null), 200, 0);
         assertResponse(request(HttpMethod.GET, "/auth-fixture/admin", newToken, null), 403, 40300);
+    }
+
+    /** 用户可明确跳过改密提示；原密码保留，新令牌生效且旧令牌撤销。 */
+    @Test
+    void firstLoginPasswordPromptCanBeSkippedWithoutChangingPassword() {
+        String oldToken = login(specialist, OLD_PASSWORD);
+        assertResponse(request(HttpMethod.GET, "/api/customers", oldToken, null), 403, 40301);
+        var skipped = request(HttpMethod.POST, "/api/auth/password/skip", oldToken, null);
+        assertResponse(skipped, 200, 0);
+        String newToken = skipped.getBody().path("data").path("accessToken").asText();
+        assertThat(skipped.getBody().path("data").path("user").path("mustChangePassword").asBoolean()).isFalse();
+        assertResponse(request(HttpMethod.GET, "/api/customers", newToken, null), 200, 0);
+        assertResponse(request(HttpMethod.GET, "/api/auth/me", oldToken, null), 401, 40102);
+        var saved = jdbc.queryForMap("SELECT password_hash,must_change_password FROM sys_user WHERE id=?", specialist.id());
+        assertThat(saved.get("password_hash")).isEqualTo(fixtureHash);
+        assertThat(saved.get("must_change_password")).isEqualTo(false);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_operation_log WHERE biz_type='USER' AND biz_id=? AND action_code='PASSWORD_PROMPT_SKIPPED'", Integer.class, specialist.id())).isEqualTo(1);
+        assertThat(login(specialist, OLD_PASSWORD)).isNotBlank();
+    }
+
+    /** 管理员为新经理同时创建团队，重复团队名时账号和新团队整体回滚。 */
+    @Test
+    void creatingManagerCreatesTeamAndDuplicateTeamNameLeavesNoOrphan() {
+        Fixture admin = createUser("ADMIN", false, null);
+        String token = login(admin, OLD_PASSWORD);
+        String teamName = "账号集成团队-" + UUID.randomUUID();
+        String username = "manager.it." + UUID.randomUUID();
+        var payload = Map.of("username", username, "realName", "集成经理", "roleCode", "MANAGER", "newTeamName", teamName, "initialPassword", "Initial123!");
+        var created = request(HttpMethod.POST, "/api/users", token, payload);
+        assertResponse(created, 200, 0);
+        long createdTeam = created.getBody().path("data").path("teamId").asLong();
+        long managerId = created.getBody().path("data").path("id").asLong();
+        assertThat(jdbc.queryForObject("SELECT manager_id FROM sys_team WHERE id=?", Long.class, createdTeam)).isEqualTo(managerId);
+        fixtureUsers.add(managerId); fixtureTeams.add(createdTeam);
+
+        var duplicate = request(HttpMethod.POST, "/api/users", token, Map.of("username", "rollback." + UUID.randomUUID(), "realName", "回滚经理", "roleCode", "MANAGER", "newTeamName", teamName, "initialPassword", "Initial123!"));
+        assertResponse(duplicate, 409, 40900);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_team WHERE team_name=?", Integer.class, teamName)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM sys_user WHERE username LIKE 'rollback.%'", Integer.class)).isZero();
+    }
+
+    /** 管理员读取待核验账号申请计数，其他角色不能调用全局提醒接口。 */
+    @Test
+    void accountApplicationReminderIsAdminOnlyAndCountsPendingApplication() {
+        Fixture admin = createUser("ADMIN", false, null), manager = createUser("MANAGER", false, teamId);
+        String adminToken = login(admin, OLD_PASSWORD), managerToken = login(manager, OLD_PASSWORD);
+        var applied = request(HttpMethod.POST, "/api/account-applications", managerToken,
+            Map.of("username", "applicant." + UUID.randomUUID(), "realName", "申请专员", "reason", "集成测试申请"));
+        assertResponse(applied, 200, 0);
+        long applicantId = jdbc.queryForObject("SELECT biz_id FROM crm_approval WHERE id=?", Long.class, applied.getBody().path("data").asLong());
+        fixtureUsers.add(applicantId);
+        var summary = request(HttpMethod.GET, "/api/account-applications/summary", adminToken, null);
+        assertResponse(summary, 200, 0);
+        assertThat(summary.getBody().path("data").path("pendingCount").asLong()).isGreaterThanOrEqualTo(1);
+        assertResponse(request(HttpMethod.GET, "/api/account-applications/summary", managerToken, null), 403, 40300);
     }
 
     /** 验证错误密码与不存在账号的响应一致且输入受校验。 */

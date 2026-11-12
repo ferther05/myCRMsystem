@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 文件作用：工作台实时队列；固定SQL分支共享计数/分页条件，归属与自审限制由服务端身份决定。 -->
+<mapper namespace="com.bishe.crm.module.workbench.mapper.WorkbenchMapper">
+  <sql id="customerScope">
+    c.deleted=0 AND c.sea_type='PRIVATE'
+    <choose><when test="s.role == 'MANAGER'">AND c.team_id=#{s.teamId}</when><when test="s.role == 'SPECIALIST'">AND c.owner_id=#{s.userId}</when><otherwise>AND #{s.role}='ADMIN'</otherwise></choose>
+  </sql>
+  <sql id="opportunityScope">
+    c.deleted=0 AND c.sea_type='PRIVATE'
+    <choose><when test="s.role == 'MANAGER'">AND o.team_id=#{s.teamId}</when><when test="s.role == 'SPECIALIST'">AND (o.owner_id=#{s.userId} OR EXISTS(SELECT 1 FROM crm_opportunity_collaborator oc WHERE oc.opportunity_id=o.id AND oc.user_id=#{s.userId} AND oc.collaborator_status='ACTIVE' AND oc.left_at IS NULL))</when><otherwise>AND #{s.role}='ADMIN'</otherwise></choose>
+  </sql>
+  <sql id="contractScope">
+    c.deleted=0 AND c.sea_type='PRIVATE'
+    <choose><when test="s.role == 'MANAGER'">AND k.team_id=#{s.teamId}</when><when test="s.role == 'SPECIALIST'">AND k.owner_id=#{s.userId}</when><otherwise>AND #{s.role}='ADMIN'</otherwise></choose>
+  </sql>
+  <sql id="followReview">
+    SELECT CONCAT('follow-',f.id) itemKey,'FOLLOW_REVIEW' type,'核验有效跟进' title,
+      COALESCE(o.opportunity_name,c.customer_name) objectName,COALESCE(NULLIF(u.real_name,''),u.username) actorName,
+      f.created_at occurredAt,NULL amount,IF(o.id IS NULL,'CUSTOMER','OPPORTUNITY') bizType,COALESCE(o.id,c.id) bizId,
+      'follow' section,f.id relatedId
+    FROM crm_follow_record f JOIN crm_customer c ON c.id=f.customer_id
+      LEFT JOIN crm_opportunity o ON o.id=f.opportunity_id LEFT JOIN sys_user u ON u.id=f.follow_user_id
+    WHERE <include refid="customerScope"/> AND f.review_status='PENDING' AND f.is_effective=1 AND f.follow_user_id &lt;&gt; #{s.userId}
+      AND (c.ownership_started_at IS NULL OR f.followed_at &gt;= c.ownership_started_at)
+      AND (f.opportunity_id IS NULL OR (o.stage_code=f.opportunity_stage_code AND o.stage_seq=f.opportunity_stage_seq
+        AND o.stage_code IN ('NEW','FOLLOWING','QUOTED','DEAL') AND o.activity_status IN ('ACTIVE','STAGNANT')))
+  </sql>
+  <sql id="contractReview">
+    SELECT CONCAT('contract-',k.id) itemKey,'CONTRACT_REVIEW' type,
+      IF(k.signing_progress='DRAFT_REVIEW','核验合同登记资料','核验最新签署文件') title,k.contract_name objectName,
+      COALESCE(NULLIF(u.real_name,''),u.username) actorName,k.updated_at occurredAt,NULL amount,'CONTRACT' bizType,k.id bizId,'progress' section,NULL relatedId
+    FROM crm_contract k JOIN crm_customer c ON c.id=k.customer_id LEFT JOIN sys_user u ON u.id=k.owner_id
+    WHERE <include refid="contractScope"/> AND k.owner_id &lt;&gt; #{s.userId}
+      AND k.contract_status='PENDING_REVIEW' AND k.signing_progress IN ('DRAFT_REVIEW','FILE_REVIEW')
+  </sql>
+  <sql id="returned">
+    SELECT CONCAT('returned-contract-',k.id) itemKey,'RETURNED' type,'补充退回的合同资料' title,k.contract_name objectName,
+      COALESCE(NULLIF(u.real_name,''),u.username) actorName,k.updated_at occurredAt,NULL amount,'CONTRACT' bizType,k.id bizId,IF(k.signing_progress='SIGNED_UPLOAD','progress','registration') section,NULL relatedId
+    FROM crm_contract k JOIN crm_customer c ON c.id=k.customer_id LEFT JOIN sys_user u ON u.id=k.owner_id
+    WHERE <include refid="contractScope"/> AND k.contract_status='RETURNED' AND k.signing_progress IN ('DRAFT_GENERATED','SIGNED_UPLOAD')
+    UNION ALL
+    SELECT CONCAT('returned-plan-',p.id),'RETURNED','补充退回的回款计划',k.contract_name,COALESCE(NULLIF(u.real_name,''),u.username),
+      p.updated_at,NULL,'CONTRACT',k.id,'payments',NULL
+    FROM crm_payment_plan p JOIN crm_contract k ON k.id=p.contract_id JOIN crm_customer c ON c.id=k.customer_id LEFT JOIN sys_user u ON u.id=k.owner_id
+    WHERE <include refid="contractScope"/> AND p.approval_status='RETURNED' AND k.contract_status NOT IN ('SETTLED','TERMINATED','VOID')
+      AND NOT EXISTS(SELECT 1 FROM crm_payment_plan newer WHERE newer.contract_id=p.contract_id AND newer.version_no &gt; p.version_no)
+  </sql>
+  <sql id="personal">
+    SELECT CONCAT('todo-',t.id) itemKey,t.todo_type type,t.title title,
+      COALESCE(o.opportunity_name,k.contract_name,c.customer_name) objectName,'' actorName,
+      CAST(t.remind_date AS DATETIME) occurredAt,NULL amount,t.biz_type bizType,t.biz_id bizId,
+      IF(t.biz_type='CONTRACT','payments',IF(t.biz_type='CUSTOMER','relationship','stage')) section,NULL relatedId
+    FROM crm_todo t LEFT JOIN crm_opportunity o ON t.biz_type='OPPORTUNITY' AND o.id=t.biz_id
+      LEFT JOIN crm_contract k ON t.biz_type='CONTRACT' AND k.id=t.biz_id
+      JOIN crm_customer c ON c.id=COALESCE(o.customer_id,k.customer_id,IF(t.biz_type='CUSTOMER',t.biz_id,NULL))
+    WHERE t.recipient_id=#{s.userId} AND t.todo_status='PENDING' AND t.remind_date &lt;= #{today}
+      AND c.deleted=0 AND c.sea_type='PRIVATE'
+      AND ((t.biz_type='CUSTOMER' AND c.owner_id=#{s.userId}) OR (t.biz_type='CONTRACT' AND k.owner_id=#{s.userId})
+        OR (t.biz_type='OPPORTUNITY' AND (o.owner_id=#{s.userId} OR EXISTS(SELECT 1 FROM crm_opportunity_collaborator oc WHERE oc.opportunity_id=o.id AND oc.user_id=#{s.userId} AND oc.collaborator_status='ACTIVE' AND oc.left_at IS NULL))))
+      <choose><when test="category == 'FOLLOW_DUE'">AND t.todo_type='FOLLOW_DUE'</when><when test="category == 'CUSTOMER_WARNING'">AND t.todo_type='CUSTOMER_WARNING'</when><otherwise>AND t.todo_type IN ('FOLLOW_DUE','CARE_BIRTHDAY','CUSTOMER_WARNING')</otherwise></choose>
+  </sql>
+  <sql id="overdue">
+    SELECT CONCAT('overdue-',pp.id) itemKey,'OVERDUE' type,CONCAT('第',pp.period_no,'期逾期未收') title,k.contract_name objectName,
+      COALESCE(NULLIF(u.real_name,''),u.username) actorName,CAST(pp.due_date AS DATETIME) occurredAt,
+      pp.planned_amount-pp.received_amount amount,'CONTRACT' bizType,k.id bizId,'payments' section,NULL relatedId
+    FROM crm_payment_period pp JOIN crm_payment_plan p ON p.id=pp.plan_id JOIN crm_contract k ON k.id=p.contract_id
+      JOIN crm_customer c ON c.id=k.customer_id LEFT JOIN sys_user u ON u.id=k.owner_id
+    WHERE <include refid="contractScope"/> AND k.contract_status IN ('SIGNED','PERFORMING') AND p.is_current=1
+      AND p.approval_status IN ('ACTIVE','SUSPENDED') AND pp.replaced_by_plan_id IS NULL
+      AND pp.due_date &lt; #{today} AND pp.planned_amount &gt; pp.received_amount
+  </sql>
+  <sql id="approvals">
+    SELECT CONCAT('plan-',p.id) itemKey,'PAYMENT_PLAN' type,'审批回款计划' title,k.contract_name objectName,
+      COALESCE(NULLIF(u.real_name,''),u.username) actorName,p.submitted_at occurredAt,NULL amount,'CONTRACT' bizType,k.id bizId,'payments' section,NULL relatedId
+    FROM crm_payment_plan p JOIN crm_contract k ON k.id=p.contract_id JOIN crm_customer c ON c.id=k.customer_id
+      JOIN crm_approval a ON a.id=p.approval_id LEFT JOIN sys_user u ON u.id=p.submitted_by
+    WHERE <include refid="contractScope"/> AND p.approval_status='PENDING' AND a.approval_status='PENDING' AND a.approval_type='PAYMENT_PLAN'
+      AND p.submitted_by &lt;&gt; #{s.userId} AND k.contract_status NOT IN ('SETTLED','TERMINATED','VOID')
+    UNION ALL
+    SELECT CONCAT('termination-',a.id),'CONTRACT_TERMINATION','审核终止且无应收',k.contract_name,
+      COALESCE(NULLIF(u.real_name,''),u.username),a.submitted_at,NULL,'CONTRACT',k.id,'payments',NULL
+    FROM crm_approval a JOIN crm_contract k ON a.biz_type='CONTRACT' AND a.biz_id=k.id
+      JOIN crm_customer c ON c.id=k.customer_id LEFT JOIN sys_user u ON u.id=a.applicant_id
+    WHERE <include refid="contractScope"/> AND a.approval_type='CONTRACT_TERMINATION' AND a.approval_status='PENDING'
+      AND a.applicant_id &lt;&gt; #{s.userId} AND k.contract_status NOT IN ('SETTLED','TERMINATED','VOID')
+      AND NOT EXISTS(SELECT 1 FROM crm_approval newer WHERE newer.biz_type='CONTRACT' AND newer.biz_id=k.id AND newer.approval_type='CONTRACT_TERMINATION' AND newer.id &gt; a.id)
+    UNION ALL
+    SELECT CONCAT('close-',o.id),'OPP_CLOSE_PENDING','裁决待关闭商机',o.opportunity_name,
+      COALESCE(NULLIF(u.real_name,''),u.username),COALESCE(o.close_pending_at,o.updated_at),NULL,'OPPORTUNITY',o.id,'records',NULL
+    FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id LEFT JOIN sys_user u ON u.id=o.owner_id
+    WHERE <include refid="opportunityScope"/> AND o.activity_status='CLOSE_PENDING' AND o.stage_code NOT IN ('WON','LOST','CLOSED')
+    UNION ALL
+    SELECT CONCAT('appeal-',a.id),'RECYCLE_APPEAL','审核客户延期',c.customer_name,COALESCE(NULLIF(u.real_name,''),u.username),a.submitted_at,NULL,'CUSTOMER',c.id,'recycle',NULL
+    FROM crm_approval a JOIN crm_customer c ON a.biz_type='CUSTOMER' AND a.biz_id=c.id LEFT JOIN sys_user u ON u.id=a.applicant_id
+    WHERE <include refid="customerScope"/> AND a.approval_type='RECYCLE_APPEAL' AND a.approval_status='PENDING'
+      AND a.applicant_id &lt;&gt; #{s.userId}
+      AND CAST(JSON_UNQUOTE(JSON_EXTRACT(a.extra_json,'$.ownershipSeq')) AS UNSIGNED)=c.ownership_seq
+      AND JSON_UNQUOTE(JSON_EXTRACT(a.extra_json,'$.cycleKey')) LIKE CONCAT(c.ownership_seq,':',IF(c.last_effective_follow_at IS NULL,'FIRST:','FOLLOW:'),'%')
+      AND CAST(SUBSTRING(JSON_UNQUOTE(JSON_EXTRACT(a.extra_json,'$.cycleKey')),
+        LENGTH(CONCAT(c.ownership_seq,':',IF(c.last_effective_follow_at IS NULL,'FIRST:','FOLLOW:')))+1) AS DATETIME(3)) =
+        CASE WHEN c.last_effective_follow_at IS NOT NULL THEN GREATEST(c.last_effective_follow_at,COALESCE(c.ownership_started_at,c.created_at))
+          WHEN c.first_contact_deadline_at IS NULL THEN COALESCE(c.ownership_started_at,c.created_at)
+          ELSE TIMESTAMPADD(HOUR,-COALESCE((SELECT CAST(config_value AS SIGNED) FROM sys_config WHERE config_type='PARAM' AND config_group='crm.time' AND config_key='first_contact_recycle_hours' AND enabled=1),72),c.first_contact_deadline_at) END
+  </sql>
+  <sql id="source">
+    <choose>
+      <when test="category == 'FOLLOW_REVIEW'"><include refid="followReview"/></when>
+      <when test="category == 'CONTRACT_REVIEW'"><include refid="contractReview"/></when>
+      <when test="category == 'REVIEW'"><include refid="followReview"/> UNION ALL <include refid="contractReview"/></when>
+      <when test="category == 'RETURNED'"><include refid="returned"/></when>
+      <when test="category == 'TODAY'"><include refid="personal"/> UNION ALL <include refid="returned"/> UNION ALL <include refid="overdue"/></when>
+      <when test="category == 'FOLLOW_DUE' or category == 'CUSTOMER_WARNING'"><include refid="personal"/></when>
+      <when test="category == 'OVERDUE'"><include refid="overdue"/></when>
+      <when test="category == 'APPROVAL'"><include refid="approvals"/></when>
+      <when test="category == 'OPEN' or category == 'STAGNANT'">
+        SELECT CONCAT('opp-',o.id) itemKey,'OPPORTUNITY' type,IF(o.activity_status='STAGNANT','商机停滞需协调','查看阶段下一步') title,
+          o.opportunity_name objectName,COALESCE(NULLIF(u.real_name,''),u.username) actorName,
+          COALESCE(o.last_effective_progress_at,o.created_at) occurredAt,NULL amount,'OPPORTUNITY' bizType,o.id bizId,'stage' section,NULL relatedId
+        FROM crm_opportunity o JOIN crm_customer c ON c.id=o.customer_id LEFT JOIN sys_user u ON u.id=o.owner_id
+        WHERE <include refid="opportunityScope"/> AND o.stage_code NOT IN ('WON','LOST','CLOSED')
+        <if test="category == 'STAGNANT'">AND o.activity_status='STAGNANT'</if>
+      </when>
+      <when test="category == 'JOB_FAILURE'">
+        SELECT CONCAT('job-',j.id) itemKey,'JOB_FAILURE' type,'检查最新扫描失败' title,j.job_name objectName,'系统扫描' actorName,
+          j.started_at occurredAt,NULL amount,'JOB' bizType,j.id bizId,'jobs' section,NULL relatedId FROM crm_job_log j
+        WHERE #{s.role}='ADMIN' AND j.run_status IN ('FAILED','PARTIAL_FAILURE')
+          AND NOT EXISTS(SELECT 1 FROM crm_job_log newer WHERE newer.logical_run_id=j.logical_run_id AND newer.attempt_no &gt; j.attempt_no)
+      </when>
+      <when test="category == 'ACCOUNTS'">
+        SELECT CONCAT('account-',a.id) itemKey,'ACCOUNT_OPEN' type,'审核内部账号申请' title,
+          COALESCE(NULLIF(requested.real_name,''),requested.username,'内部账号申请') objectName,
+          COALESCE(NULLIF(u.real_name,''),u.username) actorName,a.submitted_at occurredAt,NULL amount,'USER' bizType,a.biz_id bizId,'accounts' section,NULL relatedId
+        FROM crm_approval a LEFT JOIN sys_user u ON u.id=a.applicant_id LEFT JOIN sys_user requested ON requested.id=a.biz_id
+        WHERE #{s.role}='ADMIN' AND a.approval_type='ACCOUNT_OPEN' AND a.approval_status='PENDING' AND a.applicant_id &lt;&gt; #{s.userId}
+      </when>
+      <otherwise>SELECT '' itemKey,'' type,'' title,'' objectName,'' actorName,NULL occurredAt,NULL amount,'' bizType,0 bizId,'' section,NULL relatedId WHERE 1=0</otherwise>
+    </choose>
+  </sql>
+  <select id="count" resultType="long">SELECT COUNT(*) FROM (<include refid="source"/>) work_items</select>
+  <select id="items" resultType="map">SELECT * FROM (<include refid="source"/>) work_items ORDER BY occurredAt ASC,itemKey ASC</select>
+</mapper>

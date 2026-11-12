@@ -147,7 +147,15 @@ public class CustomerService {
             throw new BizException(ErrorCode.VALIDATION_ERROR);
         }
         record.setIsEffective(effective);
-        record.setReviewStatus(effective ? "PENDING" : "NOT_REQUIRED");
+        // 管理角色只在商机有效跟进中免二次核验；普通客户跟进与无效结果保持原规则。
+        boolean autoConfirmed = effective && opportunity != null &&
+            List.of("ADMIN", "MANAGER").contains(actor.roleCode());
+        record.setReviewStatus(effective ? (autoConfirmed ? "CONFIRMED" : "PENDING") : "NOT_REQUIRED");
+        if (autoConfirmed) {
+            record.setReviewerId(actor.id());
+            record.setReviewedAt(now);
+            record.setReviewReason("经理/管理员提交的有效商机跟进，按角色规则自动核验通过");
+        }
         record.setCreatedAt(now);
         changed(follows.insertFollow(record));
         if (effective) {
@@ -180,7 +188,8 @@ public class CustomerService {
                 customer,
                 "FOLLOW_RECORDED",
                 null,
-                "新增有效跟进记录 " + record.getId() + "，待经理/管理员查验"
+                "新增有效跟进记录 " + record.getId() +
+                    (autoConfirmed ? "，管理角色提交自动核验通过" : "，待经理/管理员查验")
             );
         } else {
             audit(

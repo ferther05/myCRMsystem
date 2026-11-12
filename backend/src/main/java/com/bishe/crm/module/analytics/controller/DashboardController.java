@@ -17,6 +17,14 @@ public class DashboardController {
     private final DashboardService dashboard;
     /** 返回当前授权范围的数据汇总，刷新参数只绕过缓存，不改变权限。 */
     @GetMapping("/overview") public ApiResponse<DashboardViews.Result> overview(@AuthenticationPrincipal AuthPrincipal actor,@Valid DashboardQuery query) {return ApiResponse.success(dashboard.overview(actor,query));}
+    /** 仅管理员按需读取当前资源分配与治理信息。 */
+    @GetMapping("/admin-resources")
+    @org.springframework.security.access.prepost.PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<DashboardViews.AdminResources> adminResources(
+        @AuthenticationPrincipal AuthPrincipal actor
+    ) {
+        return ApiResponse.success(dashboard.adminResources(actor));
+    }
     /** 返回可选负责人，不提供任意团队或用户枚举。 */
     @GetMapping("/owners") public ApiResponse<List<DashboardViews.Owner>> owners(@AuthenticationPrincipal AuthPrincipal actor) {return ApiResponse.success(dashboard.owners(actor));}
 }

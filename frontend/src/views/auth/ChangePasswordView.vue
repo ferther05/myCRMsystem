@@ -2,7 +2,7 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { Lock, CircleCheck, ArrowLeft } from '@element-plus/icons-vue';
 import BrandMark from '@/components/BrandMark.vue';
 import { useAuthStore } from '@/store/auth';
@@ -14,7 +14,7 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const mandatory = computed(
-  /* 判断当前是否处于首次强制改密流程。 */ () => auth.user?.mustChangePassword,
+  /* 判断当前是否仍需处理首次改密提示。 */ () => auth.user?.mustChangePassword,
 );
 const form = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' });
 const formRef = ref();
@@ -69,6 +69,17 @@ async function submit() {
     submitting.value = false;
   }
 }
+/** 用户明确跳过后进入工作台，提示保留初始密码的建议。 */
+async function skip() {
+  if (submitting.value || leaving.value) return;
+  submitting.value = true; failure.value = '';
+  try {
+    await auth.skipPassword();
+    await router.replace('/workbench');
+    void ElMessageBox.alert('建议更改登录密码', '账号安全提示', { confirmButtonText: '我知道了' }).catch(() => {});
+  } catch (error) { failure.value = error.message; }
+  finally { submitting.value = false; }
+}
 /** 退出改密流程并返回登录页。 */
 async function leave() {
   leaving.value = true;
@@ -94,14 +105,14 @@ onBeforeUnmount(
   <div class="auth-screen password-screen">
     <header class="password-header">
       <BrandMark />
-      <span class="muted">账号安全</span>
+      <el-button v-if="mandatory" :disabled="submitting || leaving" @click="skip">跳过</el-button><span v-else class="muted">账号安全</span>
     </header>
     <main class="password-main">
       <div class="password-heading">
         <span class="eyebrow">保护你的工作空间</span>
-        <h1>{{ mandatory ? '首次登录，先设置新密码' : '修改登录密码' }}</h1>
+        <h1>{{ mandatory ? '首次登录，建议设置新密码' : '修改登录密码' }}</h1>
         <p class="muted">
-          {{ mandatory ? '完成这一步后，即可开始使用工作空间。' : '定期更新密码，让账号更安心。' }}
+          {{ mandatory ? '可以设置新密码，也可点击右上角跳过，稍后在个人中心修改。' : '定期更新密码，让账号更安心。' }}
         </p>
       </div>
       <div class="panel password-card">

@@ -15,6 +15,8 @@ export const changeAccess = (id, payload) => http.put(`/users/${id}/access`, pay
 export const resetPassword = (id, payload) => http.post(`/users/${id}/reset-password`, payload);
 /** 分页查询内部账号申请。 */
 export const listApplications = (params) => http.get('/account-applications', { params });
+/** 管理员待核验账号申请数量。 */
+export const applicationSummary = () => http.get('/account-applications/summary');
 /** 提交内部账号申请。 */
 export const applyAccount = (payload) => http.post('/account-applications', payload);
 /** 审核通过或驳回账号申请。 */

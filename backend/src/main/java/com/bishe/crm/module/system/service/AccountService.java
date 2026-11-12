@@ -11,6 +11,7 @@ import com.bishe.crm.module.auth.vo.LoginVO;
 import com.bishe.crm.module.system.dto.UserQuery;
 import com.bishe.crm.module.system.dto.UserRequests;
 import com.bishe.crm.module.system.entity.AccountApplication;
+import com.bishe.crm.module.system.entity.NewTeam;
 import com.bishe.crm.module.system.entity.SystemUser;
 import com.bishe.crm.module.system.mapper.AccountMapper;
 import com.bishe.crm.module.system.mapper.SystemUserMapper;
@@ -85,23 +86,43 @@ public class AccountService {
     @Transactional
     public UserVO create(AuthPrincipal actor, UserRequests.Create request) {
         lockActor(actor, true);
-        team(request.roleCode(), request.teamId());
+        Long teamId = request.teamId();
+        if ("MANAGER".equals(request.roleCode())) {
+            if (
+                teamId != null ||
+                request.newTeamName() == null ||
+                request.newTeamName().isBlank()
+            ) {
+                throw new BizException(ErrorCode.ACCOUNT_RULE);
+            }
+            var newTeam = new NewTeam();
+            newTeam.setTeamCode(
+                "T-" + UUID.randomUUID().toString().replace("-", "").substring(0, 30)
+            );
+            newTeam.setTeamName(name(request.newTeamName()));
+            changed(accounts.createTeam(newTeam));
+            teamId = newTeam.getId();
+        } else {
+            if (request.newTeamName() != null && !request.newTeamName().isBlank()) {
+                throw new BizException(ErrorCode.ACCOUNT_RULE);
+            }
+            team(request.roleCode(), teamId);
+        }
         SystemUser user = newUser(
             request.username(),
             request.realName(),
             request.phone(),
             request.email(),
             request.roleCode(),
-            request.teamId(),
+            teamId,
             "ACTIVE",
             request.initialPassword()
         );
         changed(accounts.create(user));
-        if ("MANAGER".equals(user.getRoleCode())) accounts.assignVacantManager(
-            user.getTeamId(),
-            user.getId()
-        );
-        audit(actor, user.getId(), "ACCOUNT_CREATED", "管理员直接开通账号，首次登录需修改密码");
+        if ("MANAGER".equals(user.getRoleCode())) {
+            changed(accounts.assignVacantManager(user.getTeamId(), user.getId()));
+        }
+        audit(actor, user.getId(), "ACCOUNT_CREATED", "管理员直接开通账号，首次登录建议修改密码，可明确跳过");
         return detail(actor, user.getId());
     }
 
@@ -181,7 +202,14 @@ public class AccountService {
                 now()
             )
         );
-        audit(actor, id, "PASSWORD_RESET", "管理员重置密码，旧会话撤销，再次登录须改密");
+        audit(actor, id, "PASSWORD_RESET", "管理员重置密码，旧会话撤销，再次登录提示改密，可明确跳过");
+    }
+
+    /** 仅管理员读取待核验账号申请计数，不泄露申请详情。 */
+    public long pendingApplications(AuthPrincipal actor) {
+        if (!"ADMIN".equals(actor.roleCode())) throw new BizException(ErrorCode.FORBIDDEN);
+        if (actor.mustChangePassword()) throw new BizException(ErrorCode.PASSWORD_CHANGE_REQUIRED);
+        return accounts.pendingApplications();
     }
 
     /** 按角色查询本人或全量内部账号申请。 */

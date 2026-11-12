@@ -166,6 +166,26 @@ h3 {
   }
 }
 /* 详情统一分区：先关键事实，长说明与低频规则可展开。 */
+/* 客户与商机采用一致的抽屉标题、左侧小页导航和独立内容滚动。 */
+.business-detail-drawer .el-drawer__header { margin-bottom:0; padding:16px 22px 8px; }
+.business-detail-drawer .el-drawer__body { display:flex; flex-direction:column; overflow:hidden; padding:12px 22px 20px; }
+.business-detail-head { flex-shrink:0; display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:18px; }
+.business-detail-head h2 { margin:0; font-size:21px; line-height:1.5; overflow-wrap:anywhere; }
+.business-detail-head p { margin:7px 0 0; color:var(--crm-text-secondary); font-size:13px; line-height:1.6; }
+.business-detail-pages { flex:1; min-height:0; min-width:0; display:flex; }
+.business-detail-pages > .el-tabs__header { flex-shrink:0; }
+.business-detail-pages .el-tabs__item { justify-content:flex-start; height:44px; padding:0 18px; }
+.business-detail-pages > .el-tabs__content { flex:1; min-width:0; overflow:auto; padding:0 4px 12px 18px; }
+.business-detail-pages .el-tab-pane { min-width:0; }
+.primary-detail-nav { color:var(--crm-color-brand); font-weight:700; }
+.primary-detail-nav small { display:inline-block; margin-left:5px; padding:1px 5px; border-radius:4px; background:#edf3fc; font-size:10px; }
+@media(max-width:700px){
+  .business-detail-drawer .el-drawer__body { padding:10px 12px 14px; }
+  .business-detail-pages { flex-direction:column; }
+  .business-detail-pages > .el-tabs__content { padding:4px 2px 10px; }
+  .business-detail-pages .el-tabs__item { height:40px; padding:0 12px; }
+  .business-detail-head h2 { font-size:17px; }
+}
 .detail-keyfacts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:16px; margin:16px 0; border:1px solid #dbe4f2; border-radius:9px; background:#f5f8fd; }
 .detail-keyfacts span { display:block; color:var(--crm-text-secondary); font-size:12px; margin-bottom:5px; }
 .detail-keyfacts strong { display:block; font-size:16px; overflow-wrap:anywhere; }
@@ -183,10 +203,10 @@ h3 {
 .task-flash { animation:task-locate 1s ease-out; outline:2px solid #d28b12 !important; outline-offset:3px; }
 @keyframes task-locate { 0%,100% { box-shadow:0 0 0 0 #eab64b00; } 30%,65% { box-shadow:0 0 0 7px #eab64b55; background-color:#fff1c7; color:#624413; } }
 @media(prefers-reduced-motion:reduce) { .task-flash { animation:none; background:#fff1c7 !important; color:#624413 !important; } }
-/* 列表轻量增加留白，保持十条分页。 */
+/* 列表保持既有留白，表体撤销上一轮额外增加的4px。 */
 .panel.toolbar, .panel.filters, .panel.list-toolbar, .filter-bar { gap:16px; row-gap:14px; padding:20px; }
 .data-table .el-table__cell, .panel > .el-table .el-table__cell { padding-top:13px; padding-bottom:13px; }
 /* 所有表格列表行在各自原间距基础上总共增加4px：上下各2px，表头保持原样。 */
 .el-table .el-table__body .el-table__cell { padding-top:10px; padding-bottom:10px; }
-.data-table .el-table__body .el-table__cell, .panel > .el-table .el-table__body .el-table__cell { padding-top:15px; padding-bottom:15px; }
+.data-table .el-table__body .el-table__cell, .panel > .el-table .el-table__body .el-table__cell { padding-top:13px; padding-bottom:13px; }
 @media(max-width:600px) { .panel.toolbar, .panel.filters, .panel.list-toolbar, .filter-bar { gap:12px; padding:16px; } }

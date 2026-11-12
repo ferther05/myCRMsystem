@@ -11,6 +11,7 @@ import lombok.Setter;
 @Setter
 public class CustomerSummaryVO {
 
+    private java.time.LocalDateTime createdAt;
     private Long id;
     private String customerName;
     private String primaryPhone;

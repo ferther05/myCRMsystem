@@ -94,6 +94,13 @@ public class AccountController {
         return ApiResponse.success(null);
     }
 
+    /** 管理员账号管理与审核子菜单共享待核验计数。 */
+    @GetMapping("/account-applications/summary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<java.util.Map<String, Long>> applicationSummary(@AuthenticationPrincipal AuthPrincipal actor) {
+        return ApiResponse.success(java.util.Map.of("pendingCount", accounts.pendingApplications(actor)));
+    }
+
     /** 查询当前范围内的内部账号申请。 */
     @GetMapping("/account-applications")
     @PreAuthorize("hasAnyRole('ADMIN','MANAGER')")

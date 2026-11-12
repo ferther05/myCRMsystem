@@ -98,6 +98,15 @@ export const useAuthStore = defineStore(
       return data.user;
     }
 
+    /** 保存跳过决定并更新会话，旧请求不得覆盖新身份。 */
+    async function skipPassword() {
+      const current = readToken();
+      const data = await api.skipPassword();
+      if (readToken() !== current) throw new Error('账号会话已变化，请重新登录');
+      saveToken(data.accessToken); token.value = data.accessToken;
+      user.value = data.user; loadedToken.value = data.accessToken;
+    }
+
     return {
       token,
       user,
@@ -108,6 +117,7 @@ export const useAuthStore = defineStore(
       ensureUser,
       signOut,
       updateProfile,
+      skipPassword,
     };
   },
 );

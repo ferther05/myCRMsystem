@@ -59,6 +59,16 @@ public interface AccountMapper {
     @Select("SELECT COUNT(*) FROM sys_user WHERE role_code='ADMIN' AND account_status='ACTIVE'")
     long activeAdministrators();
 
+    /** 新经理开通时同步新增团队，唯一名称约束保护并发重复。 */
+    @Insert("INSERT INTO sys_team(team_code,team_name,enabled) VALUES(#{teamCode},#{teamName},1)")
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int createTeam(com.bishe.crm.module.system.entity.NewTeam team);
+
+    /** 管理员导航角标只统计仍待审核且关联待启用账号的申请。 */
+    @Select("SELECT COUNT(*) FROM crm_approval a JOIN sys_user u ON u.id=a.biz_id " +
+        "WHERE a.approval_type='ACCOUNT_OPEN' AND a.biz_type='USER' AND a.approval_status='PENDING' AND u.account_status='PENDING'")
+    long pendingApplications();
+
     /** 插入新账号及首次改密状态。 */
     @Insert(
         "INSERT INTO sys_user(username,password_hash,real_name,phone,email,role_code,team_id,account_status,must_change_password) " +

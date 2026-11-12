@@ -16,7 +16,6 @@ public class CustomerDetailVO extends CustomerSummaryVO {
     private String unifiedSocialCreditCode;
     private String companySize;
     private String remark;
-    private LocalDateTime createdAt;
     private LocalDateTime lastEffectiveFollowAt;
     private LocalDateTime firstContactDeadlineAt;
     private List<ContactVO> contacts;

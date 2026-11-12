@@ -673,7 +673,7 @@ public class OpportunityService {
                 "本商机本阶段至少一条已核验有效跟进",
                 index - 1 == STAGE_ORDER.indexOf(o.getStageCode()) &&
                     follows.confirmedInStage(o.getId(), o.getStageCode(), o.getStageSeq()) > 0,
-                "在当前阶段新增有效跟进，再由本团队经理或管理员查验通过；旧阶段和待查验记录不计入"
+                "专员提交后由本团队经理或管理员查验；经理/管理员提交的有效商机跟进自动核验通过。仅计当前阶段本轮，旧阶段和待查验记录不计入"
             )
         );
         if (index >= 2) result.add(

@@ -47,6 +47,12 @@ public class AuthController {
         return ApiResponse.success(null);
     }
 
+    /** 用户明确选择跳过初始密码提示，返回可办理业务的新会话。 */
+    @PostMapping("/password/skip")
+    public ApiResponse<LoginVO> skipPassword(@AuthenticationPrincipal AuthPrincipal user) {
+        return ApiResponse.success(auth.skipPassword(user));
+    }
+
     /** 撤销当前账号的登录会话。 */
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@AuthenticationPrincipal AuthPrincipal user) {

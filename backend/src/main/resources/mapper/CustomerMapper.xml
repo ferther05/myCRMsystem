@@ -19,7 +19,7 @@
   <sql id="scope">c.deleted=0 AND (c.sea_type='PUBLIC' OR <include refid="owned" /> OR <include refid="handover" />)</sql>
   <!-- 统一客户列表字段，在数据库侧遮蔽公海电话和联系人姓名。 -->
   <sql id="fields">
-    SELECT c.id,c.customer_name,
+    SELECT c.id,c.customer_name,c.created_at,
       CASE WHEN c.sea_type='PUBLIC' THEN CASE WHEN c.primary_phone IS NULL THEN NULL
         WHEN CHAR_LENGTH(c.primary_phone)&gt;=7 THEN CONCAT(LEFT(c.primary_phone,3),'****',RIGHT(c.primary_phone,4)) ELSE '****' END
         ELSE c.primary_phone END AS primary_phone,

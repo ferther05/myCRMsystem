@@ -8,6 +8,8 @@ export const login = (payload) => http.post('/auth/login', payload, { public: tr
 export const currentUser = () => http.get('/auth/me');
 /** 提交旧密码与新密码完成改密。 */
 export const changePassword = (payload) => http.post('/auth/password', payload);
+/** 明确选择跳过首次改密提醒，更新会话。 */
+export const skipPassword = () => http.post('/auth/password/skip');
 /** 请求撤销服务端会话。 */
 export const logout = () => http.post('/auth/logout');
 /** 提交本人资料并取得刷新后的令牌。 */

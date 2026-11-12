@@ -7,6 +7,8 @@ import java.util.*;
 
 public final class DashboardViews {
     private DashboardViews() {}
+    public record TeamResources(Long id,String teamName,long activeMembers,long privateCustomers,long openOpportunities) {}
+    public record AdminResources(LocalDateTime generatedAt,long publicCustomers,long unassignedPublicCustomers,long activeAccounts,long disabledAccounts,long pendingAccounts,long enabledTeams,long pendingAccountApplications,long pendingContractReviews,List<TeamResources> teams) {}
     public record Owner(Long id,String name,String teamName) {}
     public record Metrics(long customerCount,long openOpportunities,BigDecimal signedAmount,BigDecimal receivedAmount,BigDecimal outstandingAmount,BigDecimal overdueAmount,BigDecimal currentContractAmount,BigDecimal currentReceivedAmount,BigDecimal currentCollectionRate) {}
     public record Stage(String code,String name,long count,BigDecimal amount) {}

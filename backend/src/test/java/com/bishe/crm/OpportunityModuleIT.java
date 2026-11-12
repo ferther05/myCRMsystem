@@ -972,6 +972,68 @@ class OpportunityModuleIT {
         ).isNotBlank();
     }
 
+    /** 管理角色提交立即核验且只推动本阶段；新阶段仍需新跟进。 */
+    @Test
+    void managementFollowIsConfirmedWithEvidenceAndAdvancesOnlyCurrentStage() {
+        for (Long actor : List.of(manager, admin)) {
+            long id = create(admin, customer, "管理角色自动核验" + actor, 100);
+            long sibling = create(admin, customer, "不受影响商机" + actor, 100);
+            long followId = ok(call("POST", "/api/opportunities/" + id + "/follow-records",
+                actor, followBody(actor, id, "NEED_CONFIRMED"))).asLong();
+            var record = jdbc.queryForMap("SELECT * FROM crm_follow_record WHERE id=?", followId);
+            assertThat(record.get("review_status")).isEqualTo("CONFIRMED");
+            assertThat(((Number) record.get("reviewer_id")).longValue()).isEqualTo(actor);
+            assertThat(record.get("reviewed_at")).isNotNull();
+            assertThat(record.get("review_reason").toString()).contains("自动核验");
+            assertThat(record.get("opportunity_stage_code")).isEqualTo("NEW");
+            assertThat(detail(actor, id).path("stageCode").asText()).isEqualTo("FOLLOWING");
+            assertThat(detail(actor, sibling).path("stageCode").asText()).isEqualTo("NEW");
+            evidence(sales, id, "QUOTE", 200, "等待当前阶段新跟进");
+            assertThat(detail(actor, id).path("stageCode").asText()).isEqualTo("FOLLOWING");
+            ok(call("POST", "/api/opportunities/" + id + "/follow-records",
+                actor, followBody(actor, id, "SOLUTION_DISCUSSED")));
+            assertThat(detail(actor, id).path("stageCode").asText()).isEqualTo("QUOTED");
+        }
+    }
+
+    /** 管理角色无效结果不免检变有效；异团队仍不能提交。 */
+    @Test
+    void managementAutoReviewDoesNotPromoteUnansweredOrAllowForeignAccess() {
+        long id = create(admin, customer, "无效跟进边界", 100);
+        for (Long actor : List.of(manager, admin)) {
+            long followId = ok(call("POST", "/api/opportunities/" + id + "/follow-records",
+                actor, followBody(actor, id, "NOT_CONNECTED"))).asLong();
+            assertThat(jdbc.queryForObject("SELECT review_status FROM crm_follow_record WHERE id=?",
+                String.class, followId)).isEqualTo("NOT_REQUIRED");
+            assertThat(jdbc.queryForObject("SELECT is_effective FROM crm_follow_record WHERE id=?",
+                Boolean.class, followId)).isFalse();
+            assertThat(detail(actor, id).path("stageCode").asText()).isEqualTo("NEW");
+        }
+        var denied = call("POST", "/api/opportunities/" + id + "/follow-records",
+            foreign, followBody(sales, id, "NEED_CONFIRMED"));
+        assertThat(denied.getStatusCode().value()).isIn(403, 404);
+        long otherManager = user("other-manager", "MANAGER", south);
+        var managerDenied = call("POST", "/api/opportunities/" + id + "/follow-records",
+            otherManager, followBody(sales, id, "NEED_CONFIRMED"));
+        assertThat(managerDenied.getStatusCode().value()).isIn(403, 404);
+    }
+
+    /** 自动核验与阶段推进失败必须回滚记录及客户时钟。 */
+    @Test
+    void autoReviewedFollowRollsBackWhenStageWriteFails() {
+        long id = create(admin, customer, "自动核验回滚", 100);
+        long count = jdbc.queryForObject("SELECT COUNT(*) FROM crm_follow_record WHERE opportunity_id=?", Long.class, id);
+        long version = detail(manager, id).path("customerVersion").asLong();
+        doThrow(new DataIntegrityViolationException("isolated stage failure")).when(opportunities).insertStageLog(any());
+        var response = call("POST", "/api/opportunities/" + id + "/follow-records", manager,
+            followBody(manager, id, "NEED_CONFIRMED"));
+        // 数据一致性失败按统一异常契约返回409；事务仍必须整笔回滚。
+        assertThat(response.getStatusCode().value()).isEqualTo(409);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM crm_follow_record WHERE opportunity_id=?", Long.class, id)).isEqualTo(count);
+        assertThat(detail(manager, id).path("stageCode").asText()).isEqualTo("NEW");
+        assertThat(detail(manager, id).path("customerVersion").asLong()).isEqualTo(version);
+    }
+
     /** 提交商机跟进并明确完成查验，仅用于需要已满足门槛的测试准备。 */
     void follow(Long actor, long id, String result) {
         long followId = ok(

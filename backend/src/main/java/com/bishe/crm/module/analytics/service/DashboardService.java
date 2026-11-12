@@ -20,6 +20,17 @@ public class DashboardService {
     private final DashboardMapper mapper;
     private final DashboardCache cache;
     private final Clock clock;
+    /** 全局资源独立按需查库，不受经营日期或负责人筛选影响。 */
+    @Transactional(readOnly=true)
+    public AdminResources adminResources(AuthPrincipal actor) {
+        usable(actor);
+        if (!"ADMIN".equals(actor.roleCode())) throw new BizException(ErrorCode.FORBIDDEN);
+        var row=mapper.adminResourceCounts();
+        return new AdminResources(LocalDateTime.now(clock),n(row,"publicCustomers"),n(row,"unassignedPublicCustomers"),
+            n(row,"activeAccounts"),n(row,"disabledAccounts"),n(row,"pendingAccounts"),n(row,"enabledTeams"),
+            n(row,"pendingAccountApplications"),n(row,"pendingContractReviews"),mapper.adminTeamResources());
+    }
+
     /** 选择项只来自服务端允许的当前及历史业绩人员。 */
     public List<Owner> owners(AuthPrincipal actor) {usable(actor);return mapper.owners(DataScope.of(actor));}
     /** 当前指标与历史期间指标在同一只读事务内聚合，本人待办始终实时。 */
